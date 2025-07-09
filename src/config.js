@@ -39,13 +39,25 @@ export const CONFIG = {
         mouseOffset: { x: 0, y: 1 }, // Левый нижний угол для мыши
         touchOffset: { x: 0.5, y: 0.5 }, // Центр для пальца
         sizePercent: 50, // Размер иглы в процентах от печенья
-        visible: false // Начальная видимость
+        visible: false, // Начальная видимость
+        // Анимация нажатия
+        pressAnimation: {
+            offsetY: 5, // Смещение вниз при нажатии
+            duration: 0.1 // Длительность анимации в секундах
+        },
+        // Позиция на мобильных устройствах
+        mobile: {
+            staticPosition: { x: 0.85, y: 0.5 }, // Позиция справа (в процентах от экрана)
+            animationDuration: 0.3 // Время перемещения к касанию
+        }
     },
     
     // Dev настройки
     dev: {
         showBorders: true,
         showLabels: true,
-        consoleLogging: true
+        consoleLogging: true,
+        // Принудительная отладка для мобильных (даже в продакшене)
+        forceMobileDebug: true
     }
 };

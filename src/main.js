@@ -4,9 +4,101 @@ import { CONFIG } from './config.js';
 // Определяем режим разработки
 const isDev = import.meta.env.DEV;
 
+// Определяем мобильное устройство
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                 ('ontouchstart' in window) || 
+                 (navigator.maxTouchPoints > 0) ||
+                 (window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+
+// Глобальные переменные для иглы
+let needleBaseY = 0; // Базовая позиция Y для анимации нажатия
+let needlePressed = false; // Состояние нажатия
+
 // Активируем dev режим в HTML
 if (isDev) {
     document.body.classList.add('dev-mode');
+}
+
+// Отладочная информация для мобильных
+if (isDev) {
+    console.log('🔍 User Agent:', navigator.userAgent);
+    console.log('🔍 ontouchstart in window:', 'ontouchstart' in window);
+    console.log('🔍 maxTouchPoints:', navigator.maxTouchPoints);
+    console.log('🔍 pointer: coarse:', window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    console.log('📱 isMobile:', isMobile);
+}
+
+// Создание визуальной отладочной информации
+function createDebugInfo() {
+    const debugDiv = document.createElement('div');
+    debugDiv.id = 'debug-info';
+    debugDiv.style.cssText = `
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 12px;
+        z-index: 9999;
+        max-width: 300px;
+        white-space: pre-wrap;
+    `;
+    
+    const debugInfo = [
+        `isMobile: ${isMobile}`,
+        `ontouchstart: ${'ontouchstart' in window}`,
+        `maxTouchPoints: ${navigator.maxTouchPoints}`,
+        `pointer: coarse: ${window.matchMedia && window.matchMedia("(pointer: coarse)").matches}`,
+        `User Agent: ${navigator.userAgent.substring(0, 50)}...`
+    ].join('\n');
+    
+    debugDiv.textContent = debugInfo;
+    document.body.appendChild(debugDiv);
+    
+    // Автоматически скрыть через 10 секунд
+    setTimeout(() => {
+        if (debugDiv.parentNode) {
+            debugDiv.parentNode.removeChild(debugDiv);
+        }
+    }, 10000);
+}
+
+// Показ отладочной информации о касаниях
+function showTouchDebug(message) {
+    // Показываем отладку только в dev режиме
+    if (!isDev) return;
+    
+    let touchDebugDiv = document.getElementById('touch-debug');
+    
+    if (!touchDebugDiv) {
+        touchDebugDiv = document.createElement('div');
+        touchDebugDiv.id = 'touch-debug';
+        touchDebugDiv.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(255,0,0,0.8);
+            color: white;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 9999;
+            max-width: 200px;
+            white-space: pre-wrap;
+        `;
+        document.body.appendChild(touchDebugDiv);
+    }
+    
+    touchDebugDiv.textContent = message;
+    
+    // Скрыть через 3 секунды
+    setTimeout(() => {
+        if (touchDebugDiv.parentNode) {
+            touchDebugDiv.style.opacity = '0.5';
+        }
+    }, 3000);
 }
 
 // Инициализация PixiJS приложения
@@ -291,9 +383,9 @@ function createCookie(app) {
     // Добавляем на сцену
     app.stage.addChild(cookieSprite);
     
-    // Сохраняем ссылку для отладки
+    // Сохраняем ссылку для адаптивности
+    window.cookie = cookieSprite;
     if (isDev) {
-        window.cookie = cookieSprite;
         console.log('🍪 Размер печенья:', cookieSize);
         console.log('📍 Позиция:', cookieSprite.x, cookieSprite.y);
     }
@@ -324,10 +416,40 @@ function updateCookieSize() {
     cookieSprite.x = gameWidth / 2;
     cookieSprite.y = gameHeight / 2;
     
-    if (isDev) {
-        console.log('🍪 Размер печенья обновлен:', cookieSize);
-        console.log('📍 Новая позиция:', cookieSprite.x, cookieSprite.y);
+    // Обновляем размер иглы
+    updateNeedleSize();
+    
+    console.log('🍪 Размер печенья обновлен:', cookieSize);
+    console.log('📍 Новая позиция:', cookieSprite.x, cookieSprite.y);
+}
+
+// Обновление размера иглы при изменении окна
+function updateNeedleSize() {
+    const needleSprite = window.needle;
+    if (!needleSprite) return;
+    
+    const gameArea = document.querySelector('.game-area');
+    const gameWidth = gameArea.clientWidth;
+    const gameHeight = gameArea.clientHeight;
+    
+    // Вычисляем новый размер иглы относительно печенья
+    const minSize = Math.min(gameWidth, gameHeight);
+    const cookieSize = minSize * 0.7;
+    const needleSize = cookieSize * (CONFIG.needle.sizePercent / 100);
+    
+    // Обновляем масштаб иглы
+    const needleTexture = needleSprite.texture;
+    const scale = needleSize / Math.max(needleTexture.width, needleTexture.height);
+    needleSprite.scale.set(scale);
+    
+    // Обновляем позицию для мобильных устройств
+    if (isMobile) {
+        needleSprite.x = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+        needleSprite.y = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+        needleBaseY = needleSprite.y;
     }
+    
+    console.log('🪡 Размер иглы обновлен:', needleSize, 'scale:', scale);
 }
 
 // Загрузка текстуры иглы
@@ -429,17 +551,26 @@ function createNeedle(app) {
     // Настройка иглы
     const scale = needleSize / Math.max(needleTexture.width, needleTexture.height);
     needleSprite.scale.set(scale);
-    needleSprite.visible = CONFIG.needle.visible;
     needleSprite.zIndex = 1000; // Игла всегда сверху
+    
+    // Устанавливаем начальную позицию для мобильных устройств
+    if (isMobile) {
+        needleSprite.visible = true;
+        needleSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y); // Левый нижний угол
+        needleSprite.x = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+        needleSprite.y = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+        needleBaseY = needleSprite.y;
+    } else {
+        needleSprite.visible = CONFIG.needle.visible;
+    }
     
     // Добавляем на сцену
     app.stage.addChild(needleSprite);
     
     // Сохраняем ссылку для доступа
-    if (isDev) {
-        window.needle = needleSprite;
-        console.log('🪡 Размер иглы:', needleSize, 'scale:', scale);
-    }
+    window.needle = needleSprite;
+    console.log('🪡 Размер иглы:', needleSize, 'scale:', scale);
+    console.log('📱 Мобильное устройство:', isMobile);
     
     return needleSprite;
 }
@@ -454,6 +585,49 @@ function setupInteractivity(app) {
         return;
     }
     
+    // Принудительная отладка
+    showTouchDebug(`SETUP: ${isMobile ? 'MOBILE' : 'DESKTOP'}`);
+    
+    if (isMobile) {
+        // Мобильные устройства - отдельная логика
+        setupMobileInteractivity(gameArea);
+    } else {
+        // Десктопные устройства - логика с мышью
+        setupDesktopInteractivity(gameArea);
+    }
+    
+    // ПРИНУДИТЕЛЬНО добавляем базовые обработчики для всех устройств
+    gameArea.addEventListener('click', (event) => {
+        showTouchDebug('UNIVERSAL CLICK');
+        
+        const rect = gameArea.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        showTouchDebug(`CLICK: ${x.toFixed(0)}, ${y.toFixed(0)}`);
+        
+        if (isMobile) {
+            animateNeedleToTouch(x, y);
+            animateNeedlePress(true);
+            
+            setTimeout(() => {
+                animateNeedlePress(false);
+                setTimeout(() => {
+                    const gameWidth = gameArea.clientWidth;
+                    const gameHeight = gameArea.clientHeight;
+                    const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+                    const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+                    animateNeedleToTouch(staticX, staticY);
+                }, 200);
+            }, 300);
+        }
+    });
+    
+    console.log('🖱️ Интерактивность настроена для', isMobile ? 'мобильного' : 'десктопного', 'устройства');
+}
+
+// Настройка интерактивности для десктопа
+function setupDesktopInteractivity(gameArea) {
     // Обработка движения мыши
     gameArea.addEventListener('mousemove', (event) => {
         const rect = gameArea.getBoundingClientRect();
@@ -471,37 +645,152 @@ function setupInteractivity(app) {
     // Обработка выхода мыши из области
     gameArea.addEventListener('mouseleave', () => {
         hideNeedle();
+        animateNeedlePress(false); // Отпускаем иглу при выходе
     });
     
-    // Обработка касаний
-    gameArea.addEventListener('touchstart', (event) => {
+    // Обработка нажатия мыши
+    gameArea.addEventListener('mousedown', (event) => {
         event.preventDefault();
-        const touch = event.touches[0];
-        const rect = gameArea.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
+        animateNeedlePress(true);
+    });
+    
+    gameArea.addEventListener('mouseup', () => {
+        animateNeedlePress(false);
+    });
+}
+
+// Настройка интерактивности для мобильных устройств
+function setupMobileInteractivity(gameArea) {
+    console.log('🔧 Настраиваем мобильную интерактивность');
+    showTouchDebug('SETUP MOBILE');
+    
+    // Добавляем обработчики на разные элементы для надежности
+    const canvas = document.getElementById('game-canvas');
+    const elements = [gameArea, canvas, document.body, window];
+    
+    elements.forEach((element, index) => {
+        // Обработка касаний
+        element.addEventListener('touchstart', (event) => {
+            showTouchDebug(`TOUCH START ${index}`);
+            
+            // Только для gameArea выполняем анимацию
+            if (element === gameArea) {
+                event.preventDefault();
+                const touch = event.touches[0];
+                const rect = gameArea.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                
+                showTouchDebug(`TOUCH: ${x.toFixed(0)}, ${y.toFixed(0)}`);
+                
+                // Анимируем перемещение иглы к точке касания (левый нижний угол к касанию)
+                animateNeedleToTouch(x, y);
+                
+                // Запускаем анимацию нажатия
+                animateNeedlePress(true);
+            }
+        }, { passive: false });
         
-        showNeedle();
-        updateNeedlePosition(x, y, 'touch');
+        element.addEventListener('touchend', (event) => {
+            showTouchDebug(`TOUCH END ${index}`);
+            
+            // Только для gameArea выполняем анимацию
+            if (element === gameArea) {
+                // Отпускаем иглу
+                animateNeedlePress(false);
+                
+                // Возвращаем иглу в исходную позицию
+                setTimeout(() => {
+                    const gameWidth = gameArea.clientWidth;
+                    const gameHeight = gameArea.clientHeight;
+                    const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+                    const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+                    animateNeedleToTouch(staticX, staticY);
+                }, 200);
+            }
+        }, { passive: false });
     });
     
-    gameArea.addEventListener('touchmove', (event) => {
-        event.preventDefault();
-        const touch = event.touches[0];
-        const rect = gameArea.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
+    // Добавляем pointer events как fallback
+    gameArea.addEventListener('pointerdown', (event) => {
+        showTouchDebug('POINTER DOWN');
         
-        updateNeedlePosition(x, y, 'touch');
+        if (event.pointerType === 'touch') {
+            const rect = gameArea.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            
+            animateNeedleToTouch(x, y);
+            animateNeedlePress(true);
+        }
     });
     
-    gameArea.addEventListener('touchend', () => {
-        hideNeedle();
+    gameArea.addEventListener('pointerup', (event) => {
+        showTouchDebug('POINTER UP');
+        
+        if (event.pointerType === 'touch') {
+            animateNeedlePress(false);
+            
+            setTimeout(() => {
+                const gameWidth = gameArea.clientWidth;
+                const gameHeight = gameArea.clientHeight;
+                const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+                const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+                animateNeedleToTouch(staticX, staticY);
+            }, 200);
+        }
     });
     
-    if (isDev) {
-        console.log('🖱️ Интерактивность настроена');
-    }
+    // Добавляем обработчики click как еще один fallback
+    gameArea.addEventListener('click', (event) => {
+        showTouchDebug('CLICK EVENT');
+        
+        const rect = gameArea.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        animateNeedleToTouch(x, y);
+        animateNeedlePress(true);
+        
+        // Автоматически отпускаем через короткое время
+        setTimeout(() => {
+            animateNeedlePress(false);
+            
+            setTimeout(() => {
+                const gameWidth = gameArea.clientWidth;
+                const gameHeight = gameArea.clientHeight;
+                const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+                const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+                animateNeedleToTouch(staticX, staticY);
+            }, 200);
+        }, 300);
+    });
+    
+    // Добавляем обработчики mousedown/mouseup для мобильных как fallback
+    gameArea.addEventListener('mousedown', (event) => {
+        showTouchDebug('MOUSEDOWN EVENT');
+        
+        const rect = gameArea.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        animateNeedleToTouch(x, y);
+        animateNeedlePress(true);
+    });
+    
+    gameArea.addEventListener('mouseup', (event) => {
+        showTouchDebug('MOUSEUP EVENT');
+        
+        animateNeedlePress(false);
+        
+        setTimeout(() => {
+            const gameWidth = gameArea.clientWidth;
+            const gameHeight = gameArea.clientHeight;
+            const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
+            const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
+            animateNeedleToTouch(staticX, staticY);
+        }, 200);
+    });
 }
 
 // Показать иглу
@@ -540,12 +829,98 @@ function updateNeedlePosition(x, y, inputType) {
         needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
         needleSprite.x = x;
         needleSprite.y = y;
+        needleBaseY = y;
     } else if (inputType === 'touch') {
         // Для касания - центр
         needleSprite.anchor.set(needleConfig.touchOffset.x, needleConfig.touchOffset.y);
         needleSprite.x = x;
         needleSprite.y = y;
+        needleBaseY = y;
     }
+}
+
+// Анимация нажатия иглы
+function animateNeedlePress(pressed) {
+    const needleSprite = window.needle;
+    if (!needleSprite) return;
+    
+    const pressConfig = CONFIG.needle.pressAnimation;
+    needlePressed = pressed;
+    
+    // Останавливаем предыдущую анимацию
+    if (needleSprite.pressAnimation) {
+        cancelAnimationFrame(needleSprite.pressAnimation);
+    }
+    
+    // Создаем новую анимацию
+    const targetY = pressed ? needleBaseY + pressConfig.offsetY : needleBaseY;
+    const duration = pressConfig.duration * 1000; // Переводим в миллисекунды
+    
+    // Простая анимация через requestAnimationFrame
+    const startY = needleSprite.y;
+    const deltaY = targetY - startY;
+    const startTime = performance.now();
+    
+    function animate() {
+        const now = performance.now();
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Используем ease-out для плавности
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+        
+        needleSprite.y = startY + deltaY * easeProgress;
+        
+        if (progress < 1) {
+            needleSprite.pressAnimation = requestAnimationFrame(animate);
+        } else {
+            needleSprite.pressAnimation = null;
+        }
+    }
+    
+    needleSprite.pressAnimation = requestAnimationFrame(animate);
+}
+
+// Анимация перемещения иглы к касанию (для мобильных)
+function animateNeedleToTouch(targetX, targetY) {
+    const needleSprite = window.needle;
+    if (!needleSprite) return;
+    
+    const duration = CONFIG.needle.mobile.animationDuration * 1000;
+    
+    // Останавливаем предыдущую анимацию
+    if (needleSprite.moveAnimation) {
+        cancelAnimationFrame(needleSprite.moveAnimation);
+    }
+    
+    const startX = needleSprite.x;
+    const startY = needleSprite.y;
+    const deltaX = targetX - startX;
+    const deltaY = targetY - startY;
+    const startTime = performance.now();
+    
+    function animate() {
+        const now = performance.now();
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Используем ease-out для плавности
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+        
+        needleSprite.x = startX + deltaX * easeProgress;
+        needleSprite.y = startY + deltaY * easeProgress;
+        
+        // Обновляем базовую позицию Y для анимации нажатия
+        needleBaseY = needleSprite.y;
+        
+        if (progress < 1) {
+            needleSprite.moveAnimation = requestAnimationFrame(animate);
+        } else {
+            needleSprite.moveAnimation = null;
+        }
+    }
+    
+    needleSprite.moveAnimation = requestAnimationFrame(animate);
 }
 
 // Запуск приложения
