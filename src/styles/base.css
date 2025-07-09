@@ -27,6 +27,7 @@ body {
     border-radius: 5px;
     position: relative;
     overflow: hidden;
+    cursor: none; /* Скрываем курсор над игровой областью */
 }
 
 #game-canvas {

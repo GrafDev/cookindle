@@ -38,6 +38,9 @@ async function initApp() {
         if (isDev) {
             console.log('🔄 Изменение размера:', gameArea.clientWidth, 'x', gameArea.clientHeight);
         }
+        
+        // Обновляем размер печенья при изменении окна
+        updateCookieSize();
     });
     
     // Глобальный доступ к приложению для отладки
@@ -60,8 +63,16 @@ async function initGame(app) {
         // Создаем печенье
         createCookie(app);
         
+        // Загружаем и создаем иглу
+        await loadNeedleTexture();
+        createNeedle(app);
+        
+        // Настраиваем интерактивность
+        setupInteractivity(app);
+        
         if (isDev) {
             console.log('🍪 Печенье создано');
+            console.log('🪡 Игла настроена');
         }
         
     } catch (error) {
@@ -157,10 +168,79 @@ async function loadAssets() {
 }
 
 
+// Рисование узоров на печенье
+function drawCookiePatterns(graphics, paintingType) {
+    const patternConfig = CONFIG.cookie;
+    
+    for (let i = 0; i < patternConfig.patternCount; i++) {
+        const angle = (i / patternConfig.patternCount) * Math.PI * 2;
+        const radius = 60 + Math.random() * 80;
+        const x = 200 + Math.cos(angle) * radius + (Math.random() - 0.5) * 40;
+        const y = 200 + Math.sin(angle) * radius + (Math.random() - 0.5) * 40;
+        const size = patternConfig.patternSize.min + Math.random() * (patternConfig.patternSize.max - patternConfig.patternSize.min);
+        
+        // Рисуем узор в зависимости от типа
+        switch (paintingType) {
+            case "circle":
+                drawCirclePattern(graphics, x, y, size, patternConfig.patternColor);
+                break;
+            case "star":
+                drawStarPattern(graphics, x, y, size, patternConfig.patternColor);
+                break;
+            case "cross":
+                drawCrossPattern(graphics, x, y, size, patternConfig.patternColor);
+                break;
+            default:
+                drawCirclePattern(graphics, x, y, size, patternConfig.patternColor);
+        }
+    }
+}
+
+// Рисование круглого узора
+function drawCirclePattern(graphics, x, y, size, color) {
+    graphics.circle(x, y, size);
+    graphics.fill(color);
+}
+
+// Рисование звездчатого узора
+function drawStarPattern(graphics, x, y, size, color) {
+    const points = 5;
+    const outerRadius = size;
+    const innerRadius = size * 0.4;
+    
+    // Начинаем рисовать звезду
+    graphics.moveTo(x, y - outerRadius);
+    
+    for (let i = 0; i < points * 2; i++) {
+        const angle = (i * Math.PI) / points;
+        const radius = i % 2 === 0 ? outerRadius : innerRadius;
+        const px = x + Math.cos(angle - Math.PI / 2) * radius;
+        const py = y + Math.sin(angle - Math.PI / 2) * radius;
+        graphics.lineTo(px, py);
+    }
+    
+    graphics.closePath();
+    graphics.fill(color);
+}
+
+// Рисование крестообразного узора
+function drawCrossPattern(graphics, x, y, size, color) {
+    const thickness = size * 0.3;
+    
+    // Вертикальная линия креста
+    graphics.rect(x - thickness / 2, y - size, thickness, size * 2);
+    graphics.fill(color);
+    
+    // Горизонтальная линия креста
+    graphics.rect(x - size, y - thickness / 2, size * 2, thickness);
+    graphics.fill(color);
+}
+
 // Создание текстуры через PixiJS Graphics
 function createPixiTexture() {
     if (isDev) {
         console.log('🔶 Создаем PixiJS текстуру печенья');
+        console.log('🎨 Узор на печенье:', CONFIG.cookie.painting);
     }
     
     // Создаем графический объект
@@ -170,17 +250,8 @@ function createPixiTexture() {
     graphics.circle(200, 200, 180);
     graphics.fill(0xD2691E); // Коричневый цвет
     
-    // Добавляем шоколадные крошки
-    for (let i = 0; i < 15; i++) {
-        const angle = (i / 15) * Math.PI * 2;
-        const radius = 60 + Math.random() * 80;
-        const x = 200 + Math.cos(angle) * radius + (Math.random() - 0.5) * 40;
-        const y = 200 + Math.sin(angle) * radius + (Math.random() - 0.5) * 40;
-        const size = 8 + Math.random() * 12;
-        
-        graphics.circle(x, y, size);
-        graphics.fill(0x3C1810); // Темно-коричневый
-    }
+    // Добавляем узоры на печенье
+    drawCookiePatterns(graphics, CONFIG.cookie.painting);
     
     // Создаем текстуру из графики с правильными параметрами
     const app = window.app; // Получаем приложение
@@ -228,6 +299,253 @@ function createCookie(app) {
     }
     
     return cookieSprite;
+}
+
+// Обновление размера печенья при изменении окна
+function updateCookieSize() {
+    // Получаем печенье из кеша
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return;
+    
+    // Получаем новые размеры игровой области
+    const gameArea = document.querySelector('.game-area');
+    const gameWidth = gameArea.clientWidth;
+    const gameHeight = gameArea.clientHeight;
+    
+    // Вычисляем новый размер печенья (70% от минимальной стороны)
+    const minSize = Math.min(gameWidth, gameHeight);
+    const cookieSize = minSize * 0.7;
+    
+    // Обновляем размер спрайта
+    cookieSprite.width = cookieSize;
+    cookieSprite.height = cookieSize;
+    
+    // Обновляем позицию (центрируем)
+    cookieSprite.x = gameWidth / 2;
+    cookieSprite.y = gameHeight / 2;
+    
+    if (isDev) {
+        console.log('🍪 Размер печенья обновлен:', cookieSize);
+        console.log('📍 Новая позиция:', cookieSprite.x, cookieSprite.y);
+    }
+}
+
+// Загрузка текстуры иглы
+async function loadNeedleTexture() {
+    try {
+        // Способ 1: Динамический import
+        const needleImageUrl = (await import('./assets/textures/needle.png')).default;
+        
+        if (isDev) {
+            console.log('🔍 Загружаем текстуру иглы');
+            console.log('📁 URL текстуры иглы:', needleImageUrl);
+        }
+        
+        if (needleImageUrl) {
+            // Создаем Image элемент
+            const img = new Image();
+            
+            // Промис для загрузки изображения
+            const imageLoaded = new Promise((resolve, reject) => {
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+            });
+            
+            img.src = needleImageUrl;
+            await imageLoaded;
+            
+            // Создаем текстуру из изображения
+            const texture = Texture.from(img);
+            
+            // Добавляем в кеш
+            Assets.cache.set('needle', texture);
+            
+            if (isDev) {
+                console.log('✅ Текстура иглы загружена');
+                console.log('🖼️ Размер текстуры иглы:', texture.width, 'x', texture.height);
+            }
+            return;
+        }
+        
+        throw new Error('Import иглы вернул undefined');
+        
+    } catch (error) {
+        console.error('❌ Не удалось загрузить текстуру иглы:', error);
+        
+        // Создаем простую иглу программно
+        createProgrammaticNeedle();
+    }
+}
+
+// Создание программной иглы как fallback
+function createProgrammaticNeedle() {
+    if (isDev) {
+        console.log('🔶 Создаем программную иглу');
+    }
+    
+    const graphics = new Graphics();
+    
+    // Рисуем простую иглу
+    // Острие
+    graphics.moveTo(0, 0);
+    graphics.lineTo(3, 10);
+    graphics.lineTo(-3, 10);
+    graphics.closePath();
+    graphics.fill(0x888888);
+    
+    // Стержень
+    graphics.rect(-1, 10, 2, 20);
+    graphics.fill(0x888888);
+    
+    // Ушко
+    graphics.circle(0, 32, 3);
+    graphics.stroke({ color: 0x888888, width: 1 });
+    
+    // Создаем текстуру
+    const app = window.app;
+    const texture = app.renderer.generateTexture(graphics);
+    
+    // Добавляем в кеш
+    Assets.cache.set('needle', texture);
+    
+    if (isDev) {
+        console.log('✅ Программная игла создана');
+    }
+}
+
+// Создание спрайта иглы
+function createNeedle(app) {
+    const needleTexture = Assets.get('needle');
+    const needleSprite = new Sprite(needleTexture);
+    
+    // Вычисляем размер иглы относительно печенья
+    const gameArea = document.querySelector('.game-area');
+    const gameWidth = gameArea.clientWidth;
+    const gameHeight = gameArea.clientHeight;
+    const minSize = Math.min(gameWidth, gameHeight);
+    const cookieSize = minSize * 0.7;
+    const needleSize = cookieSize * (CONFIG.needle.sizePercent / 100);
+    
+    // Настройка иглы
+    const scale = needleSize / Math.max(needleTexture.width, needleTexture.height);
+    needleSprite.scale.set(scale);
+    needleSprite.visible = CONFIG.needle.visible;
+    needleSprite.zIndex = 1000; // Игла всегда сверху
+    
+    // Добавляем на сцену
+    app.stage.addChild(needleSprite);
+    
+    // Сохраняем ссылку для доступа
+    if (isDev) {
+        window.needle = needleSprite;
+        console.log('🪡 Размер иглы:', needleSize, 'scale:', scale);
+    }
+    
+    return needleSprite;
+}
+
+// Настройка интерактивности
+function setupInteractivity(app) {
+    const gameArea = document.querySelector('.game-area');
+    const needleSprite = window.needle;
+    
+    if (!needleSprite) {
+        console.error('❌ Спрайт иглы не найден');
+        return;
+    }
+    
+    // Обработка движения мыши
+    gameArea.addEventListener('mousemove', (event) => {
+        const rect = gameArea.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        updateNeedlePosition(x, y, 'mouse');
+    });
+    
+    // Обработка входа мыши в область
+    gameArea.addEventListener('mouseenter', () => {
+        showNeedle();
+    });
+    
+    // Обработка выхода мыши из области
+    gameArea.addEventListener('mouseleave', () => {
+        hideNeedle();
+    });
+    
+    // Обработка касаний
+    gameArea.addEventListener('touchstart', (event) => {
+        event.preventDefault();
+        const touch = event.touches[0];
+        const rect = gameArea.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        showNeedle();
+        updateNeedlePosition(x, y, 'touch');
+    });
+    
+    gameArea.addEventListener('touchmove', (event) => {
+        event.preventDefault();
+        const touch = event.touches[0];
+        const rect = gameArea.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        updateNeedlePosition(x, y, 'touch');
+    });
+    
+    gameArea.addEventListener('touchend', () => {
+        hideNeedle();
+    });
+    
+    if (isDev) {
+        console.log('🖱️ Интерактивность настроена');
+    }
+}
+
+// Показать иглу
+function showNeedle() {
+    const needleSprite = window.needle;
+    if (needleSprite) {
+        needleSprite.visible = true;
+        
+        if (isDev) {
+            console.log('👁️ Игла показана');
+        }
+    }
+}
+
+// Скрыть иглу
+function hideNeedle() {
+    const needleSprite = window.needle;
+    if (needleSprite) {
+        needleSprite.visible = false;
+        
+        if (isDev) {
+            console.log('🙈 Игла скрыта');
+        }
+    }
+}
+
+// Обновить позицию иглы
+function updateNeedlePosition(x, y, inputType) {
+    const needleSprite = window.needle;
+    if (!needleSprite) return;
+    
+    const needleConfig = CONFIG.needle;
+    
+    if (inputType === 'mouse') {
+        // Для мыши - левый нижний угол
+        needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+        needleSprite.x = x;
+        needleSprite.y = y;
+    } else if (inputType === 'touch') {
+        // Для касания - центр
+        needleSprite.anchor.set(needleConfig.touchOffset.x, needleConfig.touchOffset.y);
+        needleSprite.x = x;
+        needleSprite.y = y;
+    }
 }
 
 // Запуск приложения
