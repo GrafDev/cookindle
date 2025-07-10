@@ -15,6 +15,12 @@ let needleBaseY = 0; // Базовая позиция Y для анимации 
 let needlePressed = false; // Состояние нажатия
 let currentClickPoint = { x: 0, y: 0 }; // Текущая точка клика/касания
 
+// Глобальные переменные для системы трещин и отколов
+let cracksContainer = null; // Контейнер для всех трещин
+let chipsContainer = null; // Контейнер для падающих осколков
+let activeCracks = []; // Массив активных трещин
+let activeChips = []; // Массив падающих осколков
+
 // Активируем dev режим в HTML
 if (isDev) {
     document.body.classList.add('dev-mode');
@@ -155,6 +161,9 @@ async function initGame(app) {
         
         // Создаем печенье
         createCookie(app);
+        
+        // Инициализируем систему трещин и отколов
+        initCrackSystem(app);
         
         // Загружаем и создаем иглу
         await loadNeedleTexture();
@@ -336,9 +345,6 @@ function drawCrossPattern(graphics, x, y, size, color) {
 function drawCenterShape(graphics, x, y, shapeConfig) {
     const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength } = shapeConfig;
     
-    if (isDev) {
-        console.log('🔷 Рисуем центральную форму:', { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength });
-    }
     
     const halfSize = size / 2;
     
@@ -403,9 +409,6 @@ function drawTriangleShape(graphics, x, y, size) {
 
 // Рисование пунктирной окружности
 function drawDashedCircle(graphics, x, y, radius, dashLength, gapLength, color, lineWidth, alpha) {
-    if (isDev) {
-        console.log('🔸 Рисуем пунктирный круг:', { radius, dashLength, gapLength, color, lineWidth, alpha });
-    }
     
     const circumference = 2 * Math.PI * radius;
     const totalDashLength = dashLength + gapLength;
@@ -1330,6 +1333,23 @@ function updateNeedlePosition(x, y, inputType) {
     updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, x, y, false);
 }
 
+// Проверка, находится ли точка внутри печеньки
+function isPointInsideCookie(x, y) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return false;
+    
+    const cookieRadius = cookieSprite.width / 2;
+    const cookieCenterX = cookieSprite.x;
+    const cookieCenterY = cookieSprite.y;
+    
+    const distance = Math.sqrt(
+        Math.pow(x - cookieCenterX, 2) + 
+        Math.pow(y - cookieCenterY, 2)
+    );
+    
+    return distance <= cookieRadius;
+}
+
 // Анимация нажатия иглы
 function animateNeedlePress(pressed) {
     const needleSprite = window.needle;
@@ -1338,6 +1358,18 @@ function animateNeedlePress(pressed) {
     
     const shadowConfig = CONFIG.needle.shadow;
     needlePressed = pressed;
+    
+    // Создаем трещины при нажатии иглы, только если клик внутри печеньки
+    if (pressed) {
+        const insideCookie = isPointInsideCookie(currentClickPoint.x, currentClickPoint.y);
+        if (isDev) {
+            console.log(`🎯 Клик в точке (${currentClickPoint.x.toFixed(1)}, ${currentClickPoint.y.toFixed(1)}), внутри печеньки: ${insideCookie}`);
+        }
+        
+        if (insideCookie) {
+            createCracks(currentClickPoint.x, currentClickPoint.y);
+        }
+    }
     
     // Останавливаем предыдущую анимацию
     if (needleSprite.pressAnimation) {
@@ -1506,6 +1538,492 @@ function startPulseAnimation(app) {
     }
     
     animate();
+}
+
+// ========================
+// СИСТЕМА ТРЕЩИН И ОТКОЛОВ
+// ========================
+
+// Создание контейнеров для трещин и осколков
+function initCrackSystem(app) {
+    // Создаем контейнер для трещин (под печеньем, но над фоном)
+    cracksContainer = new Graphics();
+    cracksContainer.zIndex = 10; // Под печеньем (которое имеет zIndex 100)
+    app.stage.addChild(cracksContainer);
+    
+    // Создаем контейнер для падающих осколков
+    chipsContainer = new Graphics();
+    chipsContainer.zIndex = 500; // Над печеньем
+    app.stage.addChild(chipsContainer);
+    
+    if (isDev) {
+        console.log('🔧 Система трещин и отколов инициализирована');
+    }
+}
+
+// Генерация трещин от точки нажатия
+function createCracks(x, y) {
+    const crackConfig = CONFIG.cracks;
+    const cracksCount = Math.floor(Math.random() * (crackConfig.count.max - crackConfig.count.min + 1)) + crackConfig.count.min;
+    
+    if (isDev) {
+        console.log(`💥 Создаем ${cracksCount} трещин от точки (${x}, ${y})`);
+    }
+    
+    // Генерируем углы с минимальным расстоянием 70 градусов
+    const minAngleDiff = 70 * (Math.PI / 180); // 70 градусов в радианах
+    const angles = generateCrackAngles(cracksCount, minAngleDiff);
+    
+    for (let i = 0; i < cracksCount; i++) {
+        if (isDev) {
+            console.log(`🔸 Создаем трещину ${i+1}/${cracksCount} под углом ${(angles[i] * 180 / Math.PI).toFixed(1)}°`);
+        }
+        createRealisticCrack(x, y, i, angles[i]);
+    }
+    
+    if (isDev) {
+        console.log(`✅ Завершено создание трещин. Всего активных трещин: ${activeCracks.length}`);
+    }
+}
+
+// Генерация углов трещин с минимальным расстоянием
+function generateCrackAngles(cracksCount, minAngleDiff) {
+    const angles = [];
+    
+    if (cracksCount === 2) {
+        // Две трещины - минимум 70 градусов между ними
+        const firstAngle = Math.random() * Math.PI * 2;
+        angles.push(firstAngle);
+        
+        // Вторая трещина на расстоянии минимум 70 градусов
+        const possibleRange = Math.PI * 2 - minAngleDiff;
+        const secondAngleOffset = minAngleDiff + Math.random() * possibleRange;
+        const secondAngle = (firstAngle + secondAngleOffset) % (Math.PI * 2);
+        angles.push(secondAngle);
+    } else {
+        // Три или четыре трещины - равномерное распределение
+        const baseAngleStep = (Math.PI * 2) / cracksCount;
+        const startAngle = Math.random() * Math.PI * 2; // Случайная начальная позиция
+        
+        for (let i = 0; i < cracksCount; i++) {
+            const baseAngle = startAngle + i * baseAngleStep;
+            // Небольшое случайное отклонение (но не больше 20 градусов)
+            const maxDeviation = Math.min(20 * (Math.PI / 180), baseAngleStep / 3);
+            const deviation = (Math.random() - 0.5) * 2 * maxDeviation;
+            const finalAngle = (baseAngle + deviation) % (Math.PI * 2);
+            angles.push(finalAngle);
+        }
+    }
+    
+    return angles;
+}
+
+// Создание простой трещины
+function createRealisticCrack(startX, startY, index, direction) {
+    const crackConfig = CONFIG.cracks;
+    
+    // Начинаем генерацию зигзага в заданном направлении
+    // Находим примерную конечную точку (для общего направления)
+    const maxDistance = 300;
+    const approximateEndX = startX + Math.cos(direction) * maxDistance;
+    const approximateEndY = startY + Math.sin(direction) * maxDistance;
+    
+    // Генерируем зигзагообразный путь (он сам остановится при препятствии)
+    const zigzagPath = generateZigzagPath(startX, startY, approximateEndX, approximateEndY);
+    
+    // Проверяем минимальную длину трещины
+    if (zigzagPath.length < 2) {
+        if (isDev) {
+            console.log(`⚠️ Трещина ${index} не создана - слишком короткий путь (${zigzagPath.length} точек)`);
+        }
+        return; // Слишком короткая трещина
+    }
+    
+    // Создаем объект трещины
+    const crack = {
+        id: `crack_${Date.now()}_${index}`,
+        path: zigzagPath,
+        graphics: new Graphics()
+    };
+    
+    // Настраиваем графику трещины
+    crack.graphics.zIndex = 15;
+    cracksContainer.addChild(crack.graphics);
+    
+    // Добавляем в массив активных трещин
+    activeCracks.push(crack);
+    
+    // Мгновенно рисуем трещину
+    drawZigzagCrack(crack);
+    
+    // Проверяем образование осколков
+    checkForChipFormation();
+    
+    if (isDev) {
+        const lastPoint = zigzagPath[zigzagPath.length - 1];
+        console.log(`🔸 Создана трещина ${crack.id}: от (${startX.toFixed(1)}, ${startY.toFixed(1)}) до (${lastPoint.x.toFixed(1)}, ${lastPoint.y.toFixed(1)}), ${zigzagPath.length} точек`);
+    }
+}
+
+// Поиск конечной точки трещины (прямой луч до препятствия)
+function findCrackEndPoint(startX, startY, direction) {
+    // Получаем размеры печеньки
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return null;
+    
+    const cookieRadius = cookieSprite.width / 2;
+    const cookieCenterX = cookieSprite.x;
+    const cookieCenterY = cookieSprite.y;
+    
+    // Получаем размер центральной формы
+    const centerShapeContainer = window.centerShape;
+    const centerRadius = centerShapeContainer ? (cookieSprite.width * CONFIG.centerShape.sizePercent) / 2 : 0;
+    
+    // Максимальная длина трещины
+    const maxLength = 300;
+    
+    // Конечная точка луча (если не встретим препятствие)
+    const endX = startX + Math.cos(direction) * maxLength;
+    const endY = startY + Math.sin(direction) * maxLength;
+    
+    let closestIntersection = { x: endX, y: endY, distance: maxLength };
+    
+    // 1. Проверяем пересечение с границей печеньки (трещина останавливается НА границе)
+    const cookieBoundary = findCircleIntersection(
+        startX, startY, endX, endY,
+        cookieCenterX, cookieCenterY, cookieRadius - 2 // Небольшой отступ для визуального эффекта
+    );
+    
+    if (cookieBoundary) {
+        const distance = Math.sqrt(Math.pow(cookieBoundary.x - startX, 2) + Math.pow(cookieBoundary.y - startY, 2));
+        if (distance < closestIntersection.distance) {
+            closestIntersection = { ...cookieBoundary, distance };
+        }
+    }
+    
+    // 2. Проверяем НЕ пересечение с центральной формой (пунктирная линия)
+    // Трещины не должны заходить ВНУТРЬ центральной фигуры
+    if (centerRadius > 0) {
+        // Проверяем, начинается ли трещина ВНЕ центральной фигуры
+        const startDistanceFromCenter = Math.sqrt(Math.pow(startX - cookieCenterX, 2) + Math.pow(startY - cookieCenterY, 2));
+        
+        if (startDistanceFromCenter > centerRadius) {
+            // Трещина начинается вне фигуры, найдем где она достигает границы фигуры (чтобы остановиться)
+            const centerBoundary = findCircleIntersection(
+                startX, startY, endX, endY,
+                cookieCenterX, cookieCenterY, centerRadius
+            );
+            
+            if (centerBoundary) {
+                const distance = Math.sqrt(Math.pow(centerBoundary.x - startX, 2) + Math.pow(centerBoundary.y - startY, 2));
+                if (distance < closestIntersection.distance) {
+                    closestIntersection = { ...centerBoundary, distance };
+                }
+            }
+        }
+    }
+    
+    // 3. Проверяем пересечение с существующими трещинами
+    const crackIntersection = checkSimpleCrackIntersection(startX, startY, endX, endY);
+    if (crackIntersection) {
+        const distance = Math.sqrt(Math.pow(crackIntersection.x - startX, 2) + Math.pow(crackIntersection.y - startY, 2));
+        if (distance < closestIntersection.distance && distance > 10) { // Минимальное расстояние
+            closestIntersection = { ...crackIntersection, distance };
+        }
+    }
+    
+    return { x: closestIntersection.x, y: closestIntersection.y };
+}
+
+// Проверка, находится ли точка внутри всех границ (печенька и центральная фигура)
+function isPointWithinBoundaries(x, y) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return false;
+    
+    const cookieRadius = cookieSprite.width / 2;
+    const cookieCenterX = cookieSprite.x;
+    const cookieCenterY = cookieSprite.y;
+    
+    // Проверяем границу печеньки
+    const distanceFromCookieCenter = Math.sqrt(
+        Math.pow(x - cookieCenterX, 2) + 
+        Math.pow(y - cookieCenterY, 2)
+    );
+    
+    if (distanceFromCookieCenter >= cookieRadius - 2) {
+        return false; // Вне печеньки
+    }
+    
+    // Проверяем центральную фигуру (не должны заходить внутрь)
+    const centerShapeContainer = window.centerShape;
+    if (centerShapeContainer) {
+        const centerRadius = (cookieSprite.width * CONFIG.centerShape.sizePercent) / 2;
+        const distanceFromCenter = Math.sqrt(
+            Math.pow(x - cookieCenterX, 2) + 
+            Math.pow(y - cookieCenterY, 2)
+        );
+        
+        if (distanceFromCenter <= centerRadius) {
+            return false; // Внутри центральной фигуры
+        }
+    }
+    
+    return true;
+}
+
+// Поиск точного пересечения с границами (печенька или центральная фигура)
+function findExactBoundaryIntersection(x1, y1, x2, y2) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return null;
+    
+    const cookieRadius = cookieSprite.width / 2;
+    const cookieCenterX = cookieSprite.x;
+    const cookieCenterY = cookieSprite.y;
+    
+    // 1. Проверяем пересечение с границей печеньки
+    const cookieBoundary = findCircleIntersection(
+        x1, y1, x2, y2,
+        cookieCenterX, cookieCenterY, cookieRadius - 2
+    );
+    
+    // 2. Проверяем пересечение с центральной фигурой
+    const centerShapeContainer = window.centerShape;
+    let centerBoundary = null;
+    if (centerShapeContainer) {
+        const centerRadius = (cookieSprite.width * CONFIG.centerShape.sizePercent) / 2;
+        centerBoundary = findCircleIntersection(
+            x1, y1, x2, y2,
+            cookieCenterX, cookieCenterY, centerRadius
+        );
+    }
+    
+    // Возвращаем ближайшее пересечение
+    if (cookieBoundary && centerBoundary) {
+        const distToCookie = Math.sqrt(Math.pow(cookieBoundary.x - x1, 2) + Math.pow(cookieBoundary.y - y1, 2));
+        const distToCenter = Math.sqrt(Math.pow(centerBoundary.x - x1, 2) + Math.pow(centerBoundary.y - y1, 2));
+        return distToCookie < distToCenter ? cookieBoundary : centerBoundary;
+    }
+    
+    return cookieBoundary || centerBoundary;
+}
+
+// Генерация зигзагообразного пути как молния (обязательно до препятствия)
+function generateZigzagPath(startX, startY, endX, endY) {
+    const path = [{x: startX, y: startY}];
+    
+    // Вычисляем общее направление
+    const mainDirection = Math.atan2(endY - startY, endX - startX);
+    
+    if (isDev) {
+        console.log(`🔧 Генерируем зигзаг от (${startX.toFixed(1)}, ${startY.toFixed(1)}) в направлении ${(mainDirection * 180 / Math.PI).toFixed(1)}°`);
+    }
+    
+    // Параметры зигзага
+    const segmentLength = 8 + Math.random() * 6; // 8-14 пикселей на сегмент (меньше для более плавных трещин)
+    const zigzagAmplitude = 6 + Math.random() * 6; // Амплитуда отклонений 6-12 пикселей
+    
+    let currentX = startX;
+    let currentY = startY;
+    
+    // Продолжаем до тех пор, пока не достигнем препятствия
+    for (let step = 0; step < 100; step++) { // Максимум 100 шагов для безопасности
+        // Вычисляем следующую точку на основном направлении
+        const stepX = Math.cos(mainDirection) * segmentLength;
+        const stepY = Math.sin(mainDirection) * segmentLength;
+        
+        let nextX = currentX + stepX;
+        let nextY = currentY + stepY;
+        
+        // Добавляем зигзагообразное отклонение
+        const perpDirection = mainDirection + Math.PI / 2;
+        const offset = (Math.random() - 0.5) * 2 * zigzagAmplitude;
+        
+        const zigzagX = nextX + Math.cos(perpDirection) * offset;
+        const zigzagY = nextY + Math.sin(perpDirection) * offset;
+        
+        // Проверяем пересечение с существующими трещинами
+        const crackIntersection = checkSimpleCrackIntersection(currentX, currentY, zigzagX, zigzagY);
+        if (crackIntersection) {
+            // Пересекается с существующей трещиной - останавливаемся на точке пересечения
+            if (isDev) {
+                console.log(`⚡ Зигзаг остановлен на шаге ${step}: пересечение с другой трещиной в (${crackIntersection.x.toFixed(1)}, ${crackIntersection.y.toFixed(1)})`);
+            }
+            path.push(crackIntersection);
+            return path; // Успешно достигли препятствия
+        }
+        
+        // Проверяем, находится ли точка с зигзагом в границах
+        if (isPointWithinBoundaries(zigzagX, zigzagY)) {
+            // Зигзаг в границах - используем его
+            path.push({x: zigzagX, y: zigzagY});
+            currentX = zigzagX;
+            currentY = zigzagY;
+        } else {
+            // Зигзаг выходит за границы - пробуем прямую точку
+            
+            // Проверяем пересечение прямой линии с другими трещинами
+            const crackIntersectionStraight = checkSimpleCrackIntersection(currentX, currentY, nextX, nextY);
+            if (crackIntersectionStraight) {
+                path.push(crackIntersectionStraight);
+                return path; // Успешно достигли препятствия
+            }
+            
+            // Проверяем, находится ли прямая точка в границах
+            if (isPointWithinBoundaries(nextX, nextY)) {
+                // Прямая точка в границах - используем её
+                path.push({x: nextX, y: nextY});
+                currentX = nextX;
+                currentY = nextY;
+            } else {
+                // Даже прямая точка выходит за границы
+                // Находим точное место пересечения с границей
+                const boundaryIntersection = findExactBoundaryIntersection(currentX, currentY, nextX, nextY);
+                if (boundaryIntersection) {
+                    // Проверяем, что пересечение достаточно далеко от текущей позиции
+                    const distanceToIntersection = Math.sqrt(
+                        Math.pow(boundaryIntersection.x - currentX, 2) + 
+                        Math.pow(boundaryIntersection.y - currentY, 2)
+                    );
+                    
+                    if (distanceToIntersection > 5) { // Минимум 5 пикселей
+                        if (isDev) {
+                            console.log(`⚡ Зигзаг остановлен на шаге ${step}: достигнута граница в (${boundaryIntersection.x.toFixed(1)}, ${boundaryIntersection.y.toFixed(1)})`);
+                        }
+                        path.push(boundaryIntersection);
+                        return path; // Успешно достигли границы
+                    }
+                }
+                
+                // Если пересечение слишком близко или не найдено, останавливаемся
+                if (isDev) {
+                    console.log(`⚡ Зигзаг остановлен на шаге ${step}: слишком близко к границе или нет пересечения`);
+                }
+                return path;
+            }
+        }
+    }
+    
+    return path;
+}
+
+// Отрисовка зигзагообразной трещины
+function drawZigzagCrack(crack) {
+    const crackConfig = CONFIG.cracks;
+    const graphics = crack.graphics;
+    
+    graphics.clear();
+    
+    if (!crack.path || crack.path.length < 2) return;
+    
+    // Рисуем зигзагообразную линию по точкам пути
+    graphics.moveTo(crack.path[0].x, crack.path[0].y);
+    
+    for (let i = 1; i < crack.path.length; i++) {
+        graphics.lineTo(crack.path[i].x, crack.path[i].y);
+    }
+    
+    graphics.stroke({ 
+        color: crackConfig.color, 
+        width: crackConfig.lineWidth, 
+        alpha: crackConfig.alpha 
+    });
+}
+
+// Поиск пересечения луча с окружностью
+function findCircleIntersection(x1, y1, x2, y2, cx, cy, radius) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const fx = x1 - cx;
+    const fy = y1 - cy;
+    
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = (fx * fx + fy * fy) - radius * radius;
+    
+    const discriminant = b * b - 4 * a * c;
+    
+    if (discriminant < 0) {
+        return null; // Нет пересечения
+    }
+    
+    const discriminantSqrt = Math.sqrt(discriminant);
+    const t1 = (-b - discriminantSqrt) / (2 * a);
+    const t2 = (-b + discriminantSqrt) / (2 * a);
+    
+    // Ищем ближайшее пересечение в направлении движения (t > 0 и t <= 1)
+    let t = null;
+    if (t1 >= 0 && t1 <= 1) {
+        t = t1;
+    } else if (t2 >= 0 && t2 <= 1) {
+        t = t2;
+    }
+    
+    if (t !== null) {
+        return {
+            x: x1 + t * dx,
+            y: y1 + t * dy
+        };
+    }
+    
+    return null;
+}
+
+// Проверка пересечения с существующими зигзагообразными трещинами
+function checkSimpleCrackIntersection(x1, y1, x2, y2) {
+    for (const existingCrack of activeCracks) {
+        if (!existingCrack.path || existingCrack.path.length < 2) continue;
+        
+        // Проверяем пересечение с каждым сегментом существующей трещины
+        for (let i = 0; i < existingCrack.path.length - 1; i++) {
+            const segmentStart = existingCrack.path[i];
+            const segmentEnd = existingCrack.path[i + 1];
+            
+            const intersection = findLineIntersection(
+                x1, y1, x2, y2,
+                segmentStart.x, segmentStart.y, segmentEnd.x, segmentEnd.y
+            );
+            
+            if (intersection) {
+                return intersection;
+            }
+        }
+    }
+    
+    return null;
+}
+
+// Поиск пересечения двух отрезков
+function findLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    
+    if (Math.abs(denom) < 1e-10) {
+        return null; // Линии параллельны
+    }
+    
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+    
+    // Проверяем, что пересечение происходит внутри обоих отрезков
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        return {
+            x: x1 + t * (x2 - x1),
+            y: y1 + t * (y2 - y1)
+        };
+    }
+    
+    return null;
+}
+
+
+// Проверка образования осколков (пока заглушка)
+function checkForChipFormation() {
+    // TODO: Реализовать алгоритм определения замкнутых областей
+    // Пока что проверяем, есть ли достаточно трещин для образования осколков
+    if (activeCracks.length > 5) {
+        if (isDev) {
+            console.log('🔍 Достаточно трещин для возможного образования осколков...');
+        }
+    }
 }
 
 // Запуск приложения
