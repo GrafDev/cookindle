@@ -333,10 +333,10 @@ function drawCrossPattern(graphics, x, y, size, color) {
 
 // Рисование центральной формы
 function drawCenterShape(graphics, x, y, shapeConfig) {
-    const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength } = shapeConfig;
+    const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength, borderRadius } = shapeConfig;
     
     if (isDev) {
-        console.log('🔷 Рисуем центральную форму:', { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength });
+        console.log('🔷 Рисуем центральную форму:', { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength, borderRadius });
     }
     
     const halfSize = size / 2;
@@ -349,11 +349,11 @@ function drawCenterShape(graphics, x, y, shapeConfig) {
                 break;
                 
             case 2: // Квадрат
-                drawDashedRect(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+                drawDashedRoundedRect(graphics, x, y, size, borderRadius || 0, dashLength, gapLength, color, lineWidth, alpha);
                 break;
                 
             case 3: // Треугольник
-                drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+                drawDashedRoundedTriangle(graphics, x, y, size, borderRadius || 0, dashLength, gapLength, color, lineWidth, alpha);
                 break;
                 
             default:
@@ -367,13 +367,13 @@ function drawCenterShape(graphics, x, y, shapeConfig) {
                 graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
                 break;
                 
-            case 2: // Квадрат
-                graphics.rect(x - halfSize, y - halfSize, size, size);
+            case 2: // Квадрат со скругленными углами
+                graphics.roundRect(x - halfSize, y - halfSize, size, size, borderRadius || 0);
                 graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
                 break;
                 
-            case 3: // Треугольник
-                drawTriangleShape(graphics, x, y, size);
+            case 3: // Треугольник со скругленными углами
+                drawRoundedTriangleShape(graphics, x, y, size, borderRadius || 0);
                 graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
                 break;
                 
@@ -398,6 +398,176 @@ function drawTriangleShape(graphics, x, y, size) {
     graphics.lineTo(x + halfBase, y + centroidOffsetY);           // Правая нижняя точка
     graphics.lineTo(x - halfBase, y + centroidOffsetY);           // Левая нижняя точка
     graphics.closePath();
+}
+
+// Рисование скругленного треугольника
+function drawRoundedTriangleShape(graphics, x, y, size, borderRadius) {
+    if (borderRadius <= 0) {
+        drawTriangleShape(graphics, x, y, size);
+        return;
+    }
+    
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3;
+    
+    // Точки треугольника
+    const points = [
+        { x: x, y: y - (height - centroidOffsetY) },           // Верхняя точка
+        { x: x + halfBase, y: y + centroidOffsetY },           // Правая нижняя точка
+        { x: x - halfBase, y: y + centroidOffsetY }            // Левая нижняя точка
+    ];
+    
+    // Рисуем треугольник со скругленными углами
+    for (let i = 0; i < 3; i++) {
+        const current = points[i];
+        const next = points[(i + 1) % 3];
+        const prev = points[(i + 2) % 3];
+        
+        // Вычисляем векторы от текущей точки к соседним
+        const toPrev = { x: prev.x - current.x, y: prev.y - current.y };
+        const toNext = { x: next.x - current.x, y: next.y - current.y };
+        
+        // Нормализуем векторы
+        const lenPrev = Math.sqrt(toPrev.x * toPrev.x + toPrev.y * toPrev.y);
+        const lenNext = Math.sqrt(toNext.x * toNext.x + toNext.y * toNext.y);
+        
+        toPrev.x /= lenPrev;
+        toPrev.y /= lenPrev;
+        toNext.x /= lenNext;
+        toNext.y /= lenNext;
+        
+        // Точки начала и конца скругления
+        const startPoint = {
+            x: current.x + toPrev.x * borderRadius,
+            y: current.y + toPrev.y * borderRadius
+        };
+        const endPoint = {
+            x: current.x + toNext.x * borderRadius,
+            y: current.y + toNext.y * borderRadius
+        };
+        
+        if (i === 0) {
+            graphics.moveTo(startPoint.x, startPoint.y);
+        } else {
+            graphics.lineTo(startPoint.x, startPoint.y);
+        }
+        
+        // Рисуем скругленный угол
+        graphics.arcTo(current.x, current.y, endPoint.x, endPoint.y, borderRadius);
+    }
+    
+    graphics.closePath();
+}
+
+// Функции для пунктирных скругленных форм
+function drawDashedRoundedRect(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha) {
+    const halfSize = size / 2;
+    
+    if (borderRadius > 0) {
+        // Для скругленных форм рисуем имитацию пунктира через короткие сегменты
+        drawDashedRoundedRectSegments(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha);
+    } else {
+        // Обычный пунктирный прямоугольник
+        drawDashedRect(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+    }
+}
+
+function drawDashedRoundedTriangle(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha) {
+    if (borderRadius > 0) {
+        // Для скругленных форм рисуем имитацию пунктира через короткие сегменты
+        drawDashedRoundedTriangleSegments(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha);
+    } else {
+        // Обычный пунктирный треугольник
+        drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+    }
+}
+
+// Имитация пунктирного скругленного прямоугольника через сегменты
+function drawDashedRoundedRectSegments(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha) {
+    const halfSize = size / 2;
+    
+    // Рисуем пунктир по четырем сторонам скругленного прямоугольника
+    const sides = [
+        // Верхняя сторона
+        { start: { x: x - halfSize + borderRadius, y: y - halfSize }, end: { x: x + halfSize - borderRadius, y: y - halfSize } },
+        // Правая сторона  
+        { start: { x: x + halfSize, y: y - halfSize + borderRadius }, end: { x: x + halfSize, y: y + halfSize - borderRadius } },
+        // Нижняя сторона
+        { start: { x: x + halfSize - borderRadius, y: y + halfSize }, end: { x: x - halfSize + borderRadius, y: y + halfSize } },
+        // Левая сторона
+        { start: { x: x - halfSize, y: y + halfSize - borderRadius }, end: { x: x - halfSize, y: y - halfSize + borderRadius } }
+    ];
+    
+    // Рисуем пунктир для каждой стороны
+    sides.forEach(side => {
+        drawDashedLine(graphics, side.start, side.end, dashLength, gapLength, color, lineWidth, alpha);
+    });
+    
+    // Рисуем скругленные углы как пунктирные дуги
+    const corners = [
+        { center: { x: x - halfSize + borderRadius, y: y - halfSize + borderRadius }, startAngle: Math.PI, endAngle: Math.PI * 1.5 },
+        { center: { x: x + halfSize - borderRadius, y: y - halfSize + borderRadius }, startAngle: Math.PI * 1.5, endAngle: Math.PI * 2 },
+        { center: { x: x + halfSize - borderRadius, y: y + halfSize - borderRadius }, startAngle: 0, endAngle: Math.PI * 0.5 },
+        { center: { x: x - halfSize + borderRadius, y: y + halfSize - borderRadius }, startAngle: Math.PI * 0.5, endAngle: Math.PI }
+    ];
+    
+    corners.forEach(corner => {
+        drawDashedArc(graphics, corner.center.x, corner.center.y, borderRadius, corner.startAngle, corner.endAngle, dashLength, gapLength, color, lineWidth, alpha);
+    });
+}
+
+// Имитация пунктирного скругленного треугольника через сегменты
+function drawDashedRoundedTriangleSegments(graphics, x, y, size, borderRadius, dashLength, gapLength, color, lineWidth, alpha) {
+    // Для треугольника пока используем сплошную линию (сложно делать пунктир на кривых)
+    drawRoundedTriangleShape(graphics, x, y, size, borderRadius);
+    graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+}
+
+// Вспомогательная функция для рисования пунктирной линии
+function drawDashedLine(graphics, start, end, dashLength, gapLength, color, lineWidth, alpha) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const totalDashLength = dashLength + gapLength;
+    const numDashes = Math.floor(length / totalDashLength);
+    
+    const unitX = dx / length;
+    const unitY = dy / length;
+    
+    for (let i = 0; i < numDashes; i++) {
+        const dashStart = i * totalDashLength;
+        const dashEnd = dashStart + dashLength;
+        
+        const startX = start.x + unitX * dashStart;
+        const startY = start.y + unitY * dashStart;
+        const endX = start.x + unitX * dashEnd;
+        const endY = start.y + unitY * dashEnd;
+        
+        graphics.moveTo(startX, startY);
+        graphics.lineTo(endX, endY);
+    }
+    
+    graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+}
+
+// Вспомогательная функция для рисования пунктирной дуги
+function drawDashedArc(graphics, centerX, centerY, radius, startAngle, endAngle, dashLength, gapLength, color, lineWidth, alpha) {
+    const arcLength = Math.abs(endAngle - startAngle) * radius;
+    const totalDashLength = dashLength + gapLength;
+    const numDashes = Math.floor(arcLength / totalDashLength);
+    
+    const angleStep = (endAngle - startAngle) / (arcLength / totalDashLength);
+    const dashAngleLength = (dashLength / radius);
+    
+    for (let i = 0; i < numDashes; i++) {
+        const dashStartAngle = startAngle + (i * angleStep * totalDashLength / radius);
+        const dashEndAngle = dashStartAngle + dashAngleLength;
+        
+        // Рисуем короткую дугу для каждого штриха
+        graphics.arc(centerX, centerY, radius, dashStartAngle, dashEndAngle);
+        graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+    }
 }
 
 // Рисование пунктирной окружности
@@ -496,6 +666,189 @@ function drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, 
     graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
 }
 
+// Рисование градиентного углубления для круга
+function drawGradientCircleDepression(graphics, x, y, radius, gradientConfig) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем градиентное углубление для круга:', { radius, width, innerColor, outerColor });
+    }
+    
+    // Создаем несколько концентрических кругов для имитации градиента (внутрь от контура)
+    const steps = 20; // Количество шагов градиента
+    const stepWidth = width / steps;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1); // От 0 до 1
+        const currentRadius = radius - (i * stepWidth); // Идем от контура внутрь
+        
+        // Интерполируем цвет
+        const currentColor = interpolateColor(innerColor, outerColor, progress);
+        
+        // Интерполируем прозрачность
+        const currentAlpha = innerAlpha + (outerAlpha - innerAlpha) * progress;
+        
+        // Рисуем кольцо
+        graphics.circle(x, y, currentRadius);
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
+// Рисование градиентного углубления для квадрата
+function drawGradientRectDepression(graphics, x, y, size, gradientConfig, borderRadius = 0) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем градиентное углубление для квадрата:', { size, width, innerColor, outerColor, borderRadius });
+    }
+    
+    const steps = 20;
+    const stepWidth = width / steps;
+    const halfSize = size / 2;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1);
+        const currentSize = size - (i * stepWidth * 2); // Исправлено: идем внутрь
+        const currentHalfSize = currentSize / 2;
+        const currentBorderRadius = borderRadius * (currentSize / size); // Пропорциональное уменьшение радиуса
+        
+        // Интерполируем цвет и прозрачность
+        const currentColor = interpolateColor(innerColor, outerColor, progress);
+        const currentAlpha = innerAlpha + (outerAlpha - innerAlpha) * progress;
+        
+        // Рисуем квадрат со скругленными углами
+        graphics.roundRect(x - currentHalfSize, y - currentHalfSize, currentSize, currentSize, currentBorderRadius);
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
+// Рисование градиентного углубления для треугольника
+function drawGradientTriangleDepression(graphics, x, y, size, gradientConfig, borderRadius = 0) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем градиентное углубление для треугольника:', { size, width, innerColor, outerColor, borderRadius });
+    }
+    
+    const steps = 20;
+    const stepWidth = width / steps;
+    
+    // Корректируем размер треугольника с учетом скругления
+    const adjustedSize = borderRadius > 0 ? size - borderRadius * 0.5 : size;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1);
+        const currentSize = adjustedSize - (i * stepWidth * 2); // Начинаем с скорректированного размера
+        const currentBorderRadius = borderRadius * (currentSize / adjustedSize); // Пропорциональное уменьшение радиуса
+        
+        // Интерполируем цвет и прозрачность
+        const currentColor = interpolateColor(innerColor, outerColor, progress);
+        const currentAlpha = innerAlpha + (outerAlpha - innerAlpha) * progress;
+        
+        // Рисуем треугольник со скругленными углами
+        if (borderRadius > 0) {
+            drawRoundedTriangleShape(graphics, x, y, currentSize, currentBorderRadius);
+        } else {
+            drawTriangleShape(graphics, x, y, currentSize);
+        }
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
+// Рисование внешнего градиента для круга (выпуклость)
+function drawOuterGradientCircle(graphics, x, y, radius, gradientConfig) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем внешний градиент для круга:', { radius, width, innerColor, outerColor });
+    }
+    
+    // Создаем несколько концентрических кругов для имитации градиента (внутрь от контура, как и внутренний)
+    const steps = 20; // Количество шагов градиента
+    const stepWidth = width / steps;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1); // От 0 до 1
+        const currentRadius = radius + (i * stepWidth); // Идем от контура наружу
+        
+        // Инвертируем прогресс для внешнего градиента (темный у контура, прозрачный снаружи)
+        const invertedProgress = 1 - progress;
+        
+        // Интерполируем цвет
+        const currentColor = interpolateColor(outerColor, innerColor, invertedProgress);
+        
+        // Интерполируем прозрачность
+        const currentAlpha = outerAlpha + (innerAlpha - outerAlpha) * invertedProgress;
+        
+        // Рисуем кольцо
+        graphics.circle(x, y, currentRadius);
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
+// Рисование внешнего градиента для квадрата (выпуклость)
+function drawOuterGradientRect(graphics, x, y, size, gradientConfig, borderRadius = 0) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем внешний градиент для квадрата:', { size, width, innerColor, outerColor, borderRadius });
+    }
+    
+    const steps = 20;
+    const stepWidth = width / steps;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1);
+        const currentSize = size + (i * stepWidth * 2); // Идем от контура наружу
+        const currentHalfSize = currentSize / 2;
+        const currentBorderRadius = borderRadius * (currentSize / size); // Пропорциональное увеличение радиуса
+        
+        // Инвертируем прогресс для внешнего градиента (темный у контура, прозрачный снаружи)
+        const invertedProgress = 1 - progress;
+        
+        // Интерполируем цвет и прозрачность
+        const currentColor = interpolateColor(outerColor, innerColor, invertedProgress);
+        const currentAlpha = outerAlpha + (innerAlpha - outerAlpha) * invertedProgress;
+        
+        // Рисуем квадрат со скругленными углами
+        graphics.roundRect(x - currentHalfSize, y - currentHalfSize, currentSize, currentSize, currentBorderRadius);
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
+// Рисование внешнего градиента для треугольника (выпуклость)
+function drawOuterGradientTriangle(graphics, x, y, size, gradientConfig, borderRadius = 0) {
+    const { width, innerColor, outerColor, innerAlpha, outerAlpha } = gradientConfig;
+    
+    if (isDev) {
+        console.log('🌅 Рисуем внешний градиент для треугольника:', { size, width, innerColor, outerColor, borderRadius });
+    }
+    
+    const steps = 20;
+    const stepWidth = width / steps;
+    
+    for (let i = 0; i < steps; i++) {
+        const progress = i / (steps - 1);
+        const currentSize = size + (i * stepWidth * 2); // Идем от контура наружу
+        const currentBorderRadius = borderRadius * (currentSize / size); // Пропорциональное увеличение радиуса
+        
+        // Инвертируем прогресс для внешнего градиента (темный у контура, прозрачный снаружи)
+        const invertedProgress = 1 - progress;
+        
+        // Интерполируем цвет и прозрачность
+        const currentColor = interpolateColor(outerColor, innerColor, invertedProgress);
+        const currentAlpha = outerAlpha + (innerAlpha - outerAlpha) * invertedProgress;
+        
+        // Рисуем треугольник со скругленными углами
+        if (borderRadius > 0) {
+            drawRoundedTriangleShape(graphics, x, y, currentSize, currentBorderRadius);
+        } else {
+            drawTriangleShape(graphics, x, y, currentSize);
+        }
+        graphics.stroke({ color: currentColor, width: stepWidth, alpha: currentAlpha });
+    }
+}
+
 
 // Создание центральной формы с пульсирующей обводкой
 function createCenterShapeWithPulse(x, y, cookieSize) {
@@ -503,10 +856,66 @@ function createCenterShapeWithPulse(x, y, cookieSize) {
     const shapeSize = cookieSize * CONFIG.centerShape.sizePercent;
     const shapeConfig = { ...CONFIG.centerShape, size: shapeSize };
     
-    // Создаем основную форму
-    const mainShape = new Graphics();
-    drawCenterShape(mainShape, 0, 0, shapeConfig);
-    container.addChild(mainShape);
+    // Создаем градиентное углубление если включено
+    if (CONFIG.centerShape.gradient.enabled) {
+        const gradientShape = new Graphics();
+        const halfSize = shapeSize / 2;
+        
+        // Выбираем функцию рисования в зависимости от формы
+        switch (CONFIG.centerShape.form) {
+            case 1: // Круг
+                drawGradientCircleDepression(gradientShape, 0, 0, halfSize, CONFIG.centerShape.gradient);
+                break;
+            case 2: // Квадрат
+                drawGradientRectDepression(gradientShape, 0, 0, shapeSize, CONFIG.centerShape.gradient, CONFIG.centerShape.borderRadius);
+                break;
+            case 3: // Треугольник
+                drawGradientTriangleDepression(gradientShape, 0, 0, shapeSize, CONFIG.centerShape.gradient, CONFIG.centerShape.borderRadius);
+                break;
+            default:
+                drawGradientCircleDepression(gradientShape, 0, 0, halfSize, CONFIG.centerShape.gradient);
+        }
+        
+        container.addChild(gradientShape);
+        
+        if (isDev) {
+            console.log('🌅 Градиентное углубление добавлено для формы:', CONFIG.centerShape.form);
+        }
+    }
+    
+    // Создаем внешний градиент (выпуклость) если включен
+    if (CONFIG.centerShape.outerGradient.enabled) {
+        const outerGradientShape = new Graphics();
+        const halfSize = shapeSize / 2;
+        
+        // Выбираем функцию рисования в зависимости от формы
+        switch (CONFIG.centerShape.form) {
+            case 1: // Круг
+                drawOuterGradientCircle(outerGradientShape, 0, 0, halfSize, CONFIG.centerShape.outerGradient);
+                break;
+            case 2: // Квадрат
+                drawOuterGradientRect(outerGradientShape, 0, 0, shapeSize, CONFIG.centerShape.outerGradient, CONFIG.centerShape.borderRadius);
+                break;
+            case 3: // Треугольник
+                drawOuterGradientTriangle(outerGradientShape, 0, 0, shapeSize, CONFIG.centerShape.outerGradient, CONFIG.centerShape.borderRadius);
+                break;
+            default:
+                drawOuterGradientCircle(outerGradientShape, 0, 0, halfSize, CONFIG.centerShape.outerGradient);
+        }
+        
+        container.addChild(outerGradientShape);
+        
+        if (isDev) {
+            console.log('🌅 Внешний градиент добавлен для формы:', CONFIG.centerShape.form);
+        }
+    }
+    
+    // Создаем основную форму только если градиент отключен
+    if (!CONFIG.centerShape.gradient.enabled) {
+        const mainShape = new Graphics();
+        drawCenterShape(mainShape, 0, 0, shapeConfig);
+        container.addChild(mainShape);
+    }
     
     // Создаем пульсирующую обводку если включена
     if (CONFIG.centerShape.pulse.enabled) {
@@ -1210,7 +1619,8 @@ function startPulseAnimation(app) {
                     alpha: pulseConfig.alpha,
                     dashed: pulseConfig.dashed,
                     dashLength: pulseConfig.dashLength,
-                    gapLength: pulseConfig.gapLength
+                    gapLength: pulseConfig.gapLength,
+                    borderRadius: CONFIG.centerShape.borderRadius
                 };
                 
                 drawCenterShape(pulseShape, 0, 0, pulseConfigUpdated);
