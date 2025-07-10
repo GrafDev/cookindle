@@ -1970,6 +1970,8 @@ function findCircleIntersection(x1, y1, x2, y2, cx, cy, radius) {
 
 // Проверка пересечения с существующими зигзагообразными трещинами
 function checkSimpleCrackIntersection(x1, y1, x2, y2) {
+    const minDistance = 5; // Минимальное расстояние для проверки пересечений
+    
     for (const existingCrack of activeCracks) {
         if (!existingCrack.path || existingCrack.path.length < 2) continue;
         
@@ -1978,13 +1980,25 @@ function checkSimpleCrackIntersection(x1, y1, x2, y2) {
             const segmentStart = existingCrack.path[i];
             const segmentEnd = existingCrack.path[i + 1];
             
+            // Пропускаем сегменты, которые начинаются очень близко к началу новой трещины
+            const distanceToStart = Math.sqrt((segmentStart.x - x1) ** 2 + (segmentStart.y - y1) ** 2);
+            const distanceToEnd = Math.sqrt((segmentEnd.x - x1) ** 2 + (segmentEnd.y - y1) ** 2);
+            
+            if (distanceToStart < minDistance && distanceToEnd < minDistance) {
+                continue; // Пропускаем сегменты, которые слишком близко к начальной точке
+            }
+            
             const intersection = findLineIntersection(
                 x1, y1, x2, y2,
                 segmentStart.x, segmentStart.y, segmentEnd.x, segmentEnd.y
             );
             
             if (intersection) {
-                return intersection;
+                // Дополнительная проверка - пересечение должно быть на достаточном расстоянии от начала
+                const intersectionDistance = Math.sqrt((intersection.x - x1) ** 2 + (intersection.y - y1) ** 2);
+                if (intersectionDistance > minDistance) {
+                    return intersection;
+                }
             }
         }
     }
