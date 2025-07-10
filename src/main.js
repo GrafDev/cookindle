@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Texture } from 'pixi.js';
+import { Application, Assets, Sprite, Graphics, Texture, BlurFilter } from 'pixi.js';
 import { CONFIG } from './config.js';
 
 // Определяем режим разработки
@@ -161,6 +161,9 @@ async function initGame(app) {
         
         // Настраиваем интерактивность
         setupInteractivity(app);
+        
+        // Запускаем анимацию пульсации
+        startPulseAnimation(app);
         
         if (isDev) {
             console.log('🍪 Печенье создано');
@@ -328,6 +331,214 @@ function drawCrossPattern(graphics, x, y, size, color) {
     graphics.fill(color);
 }
 
+// Рисование центральной формы
+function drawCenterShape(graphics, x, y, shapeConfig) {
+    const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength } = shapeConfig;
+    
+    if (isDev) {
+        console.log('🔷 Рисуем центральную форму:', { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength });
+    }
+    
+    const halfSize = size / 2;
+    
+    // Если пунктирная линия, используем специальные функции
+    if (dashed && dashLength && gapLength) {
+        switch (form) {
+            case 1: // Круг
+                drawDashedCircle(graphics, x, y, halfSize, dashLength, gapLength, color, lineWidth, alpha);
+                break;
+                
+            case 2: // Квадрат
+                drawDashedRect(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+                break;
+                
+            case 3: // Треугольник
+                drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha);
+                break;
+                
+            default:
+                drawDashedCircle(graphics, x, y, halfSize, dashLength, gapLength, color, lineWidth, alpha);
+        }
+    } else {
+        // Обычная сплошная линия
+        switch (form) {
+            case 1: // Круг
+                graphics.circle(x, y, halfSize);
+                graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+                break;
+                
+            case 2: // Квадрат
+                graphics.rect(x - halfSize, y - halfSize, size, size);
+                graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+                break;
+                
+            case 3: // Треугольник
+                drawTriangleShape(graphics, x, y, size);
+                graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+                break;
+                
+            default:
+                // По умолчанию круг
+                graphics.circle(x, y, halfSize);
+                graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+        }
+    }
+}
+
+// Рисование треугольника
+function drawTriangleShape(graphics, x, y, size) {
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    
+    // Центрируем треугольник по его центроиду
+    const centroidOffsetY = height / 3; // Центроид равностороннего треугольника
+    
+    // Рисуем равносторонний треугольник с центром в точке (x, y)
+    graphics.moveTo(x, y - (height - centroidOffsetY));           // Верхняя точка
+    graphics.lineTo(x + halfBase, y + centroidOffsetY);           // Правая нижняя точка
+    graphics.lineTo(x - halfBase, y + centroidOffsetY);           // Левая нижняя точка
+    graphics.closePath();
+}
+
+// Рисование пунктирной окружности
+function drawDashedCircle(graphics, x, y, radius, dashLength, gapLength, color, lineWidth, alpha) {
+    if (isDev) {
+        console.log('🔸 Рисуем пунктирный круг:', { radius, dashLength, gapLength, color, lineWidth, alpha });
+    }
+    
+    const circumference = 2 * Math.PI * radius;
+    const totalDashLength = dashLength + gapLength;
+    const numDashes = Math.floor(circumference / totalDashLength);
+    
+    for (let i = 0; i < numDashes; i++) {
+        const startAngle = (i * totalDashLength / radius);
+        const endAngle = startAngle + (dashLength / radius);
+        
+        const startX = x + Math.cos(startAngle) * radius;
+        const startY = y + Math.sin(startAngle) * radius;
+        const endX = x + Math.cos(endAngle) * radius;
+        const endY = y + Math.sin(endAngle) * radius;
+        
+        graphics.moveTo(startX, startY);
+        graphics.lineTo(endX, endY);
+    }
+    
+    graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+}
+
+// Рисование пунктирного квадрата
+function drawDashedRect(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha) {
+    const halfSize = size / 2;
+    const sides = [
+        [{x: x - halfSize, y: y - halfSize}, {x: x + halfSize, y: y - halfSize}], // Верх
+        [{x: x + halfSize, y: y - halfSize}, {x: x + halfSize, y: y + halfSize}], // Право
+        [{x: x + halfSize, y: y + halfSize}, {x: x - halfSize, y: y + halfSize}], // Низ
+        [{x: x - halfSize, y: y + halfSize}, {x: x - halfSize, y: y - halfSize}]  // Лево
+    ];
+    
+    sides.forEach(side => {
+        const start = side[0];
+        const end = side[1];
+        const length = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+        const totalDashLength = dashLength + gapLength;
+        const numDashes = Math.floor(length / totalDashLength);
+        
+        for (let i = 0; i < numDashes; i++) {
+            const t1 = (i * totalDashLength) / length;
+            const t2 = ((i * totalDashLength) + dashLength) / length;
+            
+            const startX = start.x + (end.x - start.x) * t1;
+            const startY = start.y + (end.y - start.y) * t1;
+            const endX = start.x + (end.x - start.x) * t2;
+            const endY = start.y + (end.y - start.y) * t2;
+            
+            graphics.moveTo(startX, startY);
+            graphics.lineTo(endX, endY);
+        }
+    });
+    
+    graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+}
+
+// Рисование пунктирного треугольника
+function drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, lineWidth, alpha) {
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3;
+    
+    const points = [
+        {x: x, y: y - (height - centroidOffsetY)},           // Верхняя точка
+        {x: x + halfBase, y: y + centroidOffsetY},           // Правая нижняя точка
+        {x: x - halfBase, y: y + centroidOffsetY},           // Левая нижняя точка
+    ];
+    
+    for (let i = 0; i < 3; i++) {
+        const start = points[i];
+        const end = points[(i + 1) % 3];
+        const length = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+        const totalDashLength = dashLength + gapLength;
+        const numDashes = Math.floor(length / totalDashLength);
+        
+        for (let j = 0; j < numDashes; j++) {
+            const t1 = (j * totalDashLength) / length;
+            const t2 = ((j * totalDashLength) + dashLength) / length;
+            
+            const startX = start.x + (end.x - start.x) * t1;
+            const startY = start.y + (end.y - start.y) * t1;
+            const endX = start.x + (end.x - start.x) * t2;
+            const endY = start.y + (end.y - start.y) * t2;
+            
+            graphics.moveTo(startX, startY);
+            graphics.lineTo(endX, endY);
+        }
+    }
+    
+    graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
+}
+
+
+// Создание центральной формы с пульсирующей обводкой
+function createCenterShapeWithPulse(x, y, cookieSize) {
+    const container = new Graphics();
+    const shapeSize = cookieSize * CONFIG.centerShape.sizePercent;
+    const shapeConfig = { ...CONFIG.centerShape, size: shapeSize };
+    
+    // Создаем основную форму
+    const mainShape = new Graphics();
+    drawCenterShape(mainShape, 0, 0, shapeConfig);
+    container.addChild(mainShape);
+    
+    // Создаем пульсирующую обводку если включена
+    if (CONFIG.centerShape.pulse.enabled) {
+        const pulseShape = new Graphics();
+        
+        // Создаем точно такую же форму, но с другими параметрами
+        const pulseConfig = {
+            ...shapeConfig,
+            color: CONFIG.centerShape.pulse.colorFrom,
+            lineWidth: CONFIG.centerShape.pulse.lineWidth,
+            alpha: CONFIG.centerShape.pulse.alpha,
+            dashed: CONFIG.centerShape.pulse.dashed,
+            dashLength: CONFIG.centerShape.pulse.dashLength,
+            gapLength: CONFIG.centerShape.pulse.gapLength
+        };
+        
+        drawCenterShape(pulseShape, 0, 0, pulseConfig);
+        container.addChild(pulseShape);
+        
+        // Сохраняем ссылку на пульсирующую форму для анимации
+        container.pulseShape = pulseShape;
+        container.pulseStartTime = Date.now();
+        container.cookieSize = cookieSize;
+    }
+    
+    // Устанавливаем позицию контейнера
+    container.x = x;
+    container.y = y;
+    
+    return container;
+}
+
 // Создание текстуры через PixiJS Graphics
 function createPixiTexture() {
     if (isDev) {
@@ -344,6 +555,9 @@ function createPixiTexture() {
     
     // Добавляем узоры на печенье
     drawCookiePatterns(graphics, CONFIG.cookie.painting);
+    
+    // Добавляем центральную форму
+    drawCenterShape(graphics, 200, 200, CONFIG.centerShape);
     
     // Создаем текстуру из графики с правильными параметрами
     const app = window.app; // Получаем приложение
@@ -383,8 +597,14 @@ function createCookie(app) {
     // Добавляем на сцену
     app.stage.addChild(cookieSprite);
     
-    // Сохраняем ссылку для адаптивности
+    // Создаем и добавляем центральную форму поверх печенья
+    const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
+    app.stage.addChild(centerShapeContainer);
+    
+    // Сохраняем ссылки для адаптивности
     window.cookie = cookieSprite;
+    window.centerShape = centerShapeContainer;
+    
     if (isDev) {
         console.log('🍪 Размер печенья:', cookieSize);
         console.log('📍 Позиция:', cookieSprite.x, cookieSprite.y);
@@ -397,6 +617,7 @@ function createCookie(app) {
 function updateCookieSize() {
     // Получаем печенье из кеша
     const cookieSprite = window.cookie;
+    const centerShapeGraphics = window.centerShape;
     if (!cookieSprite) return;
     
     // Получаем новые размеры игровой области
@@ -415,6 +636,20 @@ function updateCookieSize() {
     // Обновляем позицию (центрируем)
     cookieSprite.x = gameWidth / 2;
     cookieSprite.y = gameHeight / 2;
+    
+    // Обновляем центральную форму
+    const centerShapeContainer = window.centerShape;
+    if (centerShapeContainer) {
+        // Удаляем старый контейнер
+        centerShapeContainer.parent?.removeChild(centerShapeContainer);
+        
+        // Создаем новый с обновленным размером
+        const newCenterShape = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
+        window.app.stage.addChild(newCenterShape);
+        
+        // Обновляем ссылку
+        window.centerShape = newCenterShape;
+    }
     
     // Обновляем размер иглы
     updateNeedleSize();
@@ -921,6 +1156,71 @@ function animateNeedleToTouch(targetX, targetY) {
     }
     
     needleSprite.moveAnimation = requestAnimationFrame(animate);
+}
+
+// Функция интерполяции цветов
+function interpolateColor(colorFrom, colorTo, factor) {
+    // Извлекаем RGB компоненты из hex цветов
+    const rFrom = (colorFrom >> 16) & 0xFF;
+    const gFrom = (colorFrom >> 8) & 0xFF;
+    const bFrom = colorFrom & 0xFF;
+    
+    const rTo = (colorTo >> 16) & 0xFF;
+    const gTo = (colorTo >> 8) & 0xFF;
+    const bTo = colorTo & 0xFF;
+    
+    // Интерполируем каждый компонент
+    const r = Math.round(rFrom + (rTo - rFrom) * factor);
+    const g = Math.round(gFrom + (gTo - gFrom) * factor);
+    const b = Math.round(bFrom + (bTo - bFrom) * factor);
+    
+    // Объединяем обратно в hex
+    return (r << 16) | (g << 8) | b;
+}
+
+// Функция анимации пульсации
+function startPulseAnimation(app) {
+    function animate() {
+        const centerShapeContainer = window.centerShape;
+        
+        if (centerShapeContainer && centerShapeContainer.pulseShape && CONFIG.centerShape.pulse.enabled) {
+            const currentTime = Date.now();
+            const elapsed = (currentTime - centerShapeContainer.pulseStartTime) / 1000; // в секундах
+            const pulseConfig = CONFIG.centerShape.pulse;
+            
+            // Вычисляем текущий фактор интерполяции на основе синусоиды
+            const phase = elapsed * pulseConfig.speed * 2 * Math.PI;
+            const normalizedSin = (Math.sin(phase) + 1) / 2; // нормализуем от 0 до 1
+            
+            // Интерполируем цвет
+            const currentColor = interpolateColor(pulseConfig.colorFrom, pulseConfig.colorTo, normalizedSin);
+            
+            // Пересоздаем пульсирующую форму с новым цветом
+            const pulseShape = centerShapeContainer.pulseShape;
+            if (pulseShape) {
+                pulseShape.clear();
+                
+                // Получаем параметры формы
+                const shapeSize = centerShapeContainer.cookieSize * CONFIG.centerShape.sizePercent;
+                const pulseConfigUpdated = {
+                    form: CONFIG.centerShape.form,
+                    size: shapeSize,
+                    color: currentColor,
+                    lineWidth: pulseConfig.lineWidth,
+                    alpha: pulseConfig.alpha,
+                    dashed: pulseConfig.dashed,
+                    dashLength: pulseConfig.dashLength,
+                    gapLength: pulseConfig.gapLength
+                };
+                
+                drawCenterShape(pulseShape, 0, 0, pulseConfigUpdated);
+            }
+        }
+        
+        requestAnimationFrame(animate);
+    }
+    
+    animate();
 }
 
 // Запуск приложения
