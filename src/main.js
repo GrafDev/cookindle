@@ -1570,9 +1570,20 @@ function createCracks(x, y) {
         console.log(`💥 Создаем ${cracksCount} трещин от точки (${x}, ${y})`);
     }
     
-    // Генерируем углы с минимальным расстоянием 70 градусов
-    const minAngleDiff = 70 * (Math.PI / 180); // 70 градусов в радианах
-    const angles = generateCrackAngles(cracksCount, minAngleDiff);
+    // Определяем минимальный и максимальный угол в зависимости от количества трещин
+    let minAngleDiff, maxAngleDiff;
+    if (cracksCount === 2) {
+        minAngleDiff = 110 * (Math.PI / 180); // 110 градусов для двух трещин
+        maxAngleDiff = 250 * (Math.PI / 180); // 250 градусов максимум
+    } else if (cracksCount === 3) {
+        minAngleDiff = 90 * (Math.PI / 180); // 90 градусов для трех трещин
+        maxAngleDiff = 250 * (Math.PI / 180); // 250 градусов максимум
+    } else { // 4 трещины
+        minAngleDiff = 70 * (Math.PI / 180); // 70 градусов для четырех трещин
+        maxAngleDiff = 250 * (Math.PI / 180); // 250 градусов максимум
+    }
+    
+    const angles = generateCrackAngles(cracksCount, minAngleDiff, maxAngleDiff);
     
     for (let i = 0; i < cracksCount; i++) {
         if (isDev) {
@@ -1586,30 +1597,48 @@ function createCracks(x, y) {
     }
 }
 
-// Генерация углов трещин с минимальным расстоянием
-function generateCrackAngles(cracksCount, minAngleDiff) {
+// Генерация углов трещин с минимальным и максимальным расстоянием
+function generateCrackAngles(cracksCount, minAngleDiff, maxAngleDiff) {
     const angles = [];
     
     if (cracksCount === 2) {
-        // Две трещины - минимум 70 градусов между ними
+        // Две трещины - минимум 110° и максимум 250° между ними
         const firstAngle = Math.random() * Math.PI * 2;
         angles.push(firstAngle);
         
-        // Вторая трещина на расстоянии минимум 70 градусов
-        const possibleRange = Math.PI * 2 - minAngleDiff;
+        // Вторая трещина на расстоянии между минимумом и максимумом
+        const possibleRange = maxAngleDiff - minAngleDiff;
         const secondAngleOffset = minAngleDiff + Math.random() * possibleRange;
         const secondAngle = (firstAngle + secondAngleOffset) % (Math.PI * 2);
         angles.push(secondAngle);
-    } else {
-        // Три или четыре трещины - равномерное распределение
-        const baseAngleStep = (Math.PI * 2) / cracksCount;
-        const startAngle = Math.random() * Math.PI * 2; // Случайная начальная позиция
+    } else if (cracksCount === 3) {
+        // Три трещины - минимум 90° и максимум 180° между соседними
+        const startAngle = Math.random() * Math.PI * 2;
+        angles.push(startAngle);
         
-        for (let i = 0; i < cracksCount; i++) {
-            const baseAngle = startAngle + i * baseAngleStep;
-            // Небольшое случайное отклонение (но не больше 20 градусов)
-            const maxDeviation = Math.min(20 * (Math.PI / 180), baseAngleStep / 3);
+        // Размещаем вторую трещину
+        const firstGap = minAngleDiff + Math.random() * (maxAngleDiff - minAngleDiff);
+        const secondAngle = (startAngle + firstGap) % (Math.PI * 2);
+        angles.push(secondAngle);
+        
+        // Размещаем третью трещину
+        const remainingAngle = Math.PI * 2 - firstGap;
+        // Третья трещина должна быть на расстоянии мин-макс от второй и первой
+        const secondGap = Math.max(minAngleDiff, Math.min(maxAngleDiff, remainingAngle - minAngleDiff));
+        const thirdAngle = (secondAngle + secondGap) % (Math.PI * 2);
+        angles.push(thirdAngle);
+    } else {
+        // Четыре трещины - равномерное распределение по 90° с отклонениями
+        const startAngle = Math.random() * Math.PI * 2;
+        
+        for (let i = 0; i < 4; i++) {
+            // Базовые углы: 0°, 90°, 180°, 270°
+            const baseAngle = startAngle + i * (Math.PI / 2);
+            
+            // Случайное отклонение ±10°
+            const maxDeviation = 10 * (Math.PI / 180);
             const deviation = (Math.random() - 0.5) * 2 * maxDeviation;
+            
             const finalAngle = (baseAngle + deviation) % (Math.PI * 2);
             angles.push(finalAngle);
         }
@@ -1841,14 +1870,31 @@ function generateZigzagPath(startX, startY, endX, endY) {
         const zigzagX = nextX + Math.cos(perpDirection) * offset;
         const zigzagY = nextY + Math.sin(perpDirection) * offset;
         
-        // Проверяем пересечение с существующими трещинами
-        const crackIntersection = checkSimpleCrackIntersection(currentX, currentY, zigzagX, zigzagY);
-        if (crackIntersection) {
+        // Проверяем пересечение с существующими трещинами пошагово
+        const stepSize = 5; // Размер шага для проверки пересечений
+        const dx = zigzagX - currentX;
+        const dy = zigzagY - currentY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const steps = Math.ceil(distance / stepSize);
+        
+        let foundIntersection = null;
+        for (let s = 1; s <= steps; s++) {
+            const stepX = currentX + (dx * s) / steps;
+            const stepY = currentY + (dy * s) / steps;
+            
+            const crackIntersection = checkSimpleCrackIntersection(currentX, currentY, stepX, stepY);
+            if (crackIntersection) {
+                foundIntersection = crackIntersection;
+                break;
+            }
+        }
+        
+        if (foundIntersection) {
             // Пересекается с существующей трещиной - останавливаемся на точке пересечения
             if (isDev) {
-                console.log(`⚡ Зигзаг остановлен на шаге ${step}: пересечение с другой трещиной в (${crackIntersection.x.toFixed(1)}, ${crackIntersection.y.toFixed(1)})`);
+                console.log(`⚡ Зигзаг остановлен на шаге ${step}: пересечение с другой трещиной в (${foundIntersection.x.toFixed(1)}, ${foundIntersection.y.toFixed(1)})`);
             }
-            path.push(crackIntersection);
+            path.push(foundIntersection);
             return path; // Успешно достигли препятствия
         }
         
@@ -1861,10 +1907,26 @@ function generateZigzagPath(startX, startY, endX, endY) {
         } else {
             // Зигзаг выходит за границы - пробуем прямую точку
             
-            // Проверяем пересечение прямой линии с другими трещинами
-            const crackIntersectionStraight = checkSimpleCrackIntersection(currentX, currentY, nextX, nextY);
-            if (crackIntersectionStraight) {
-                path.push(crackIntersectionStraight);
+            // Проверяем пересечение прямой линии с другими трещинами пошагово
+            const straightDx = nextX - currentX;
+            const straightDy = nextY - currentY;
+            const straightDistance = Math.sqrt(straightDx * straightDx + straightDy * straightDy);
+            const straightSteps = Math.ceil(straightDistance / stepSize);
+            
+            let foundStraightIntersection = null;
+            for (let s = 1; s <= straightSteps; s++) {
+                const stepX = currentX + (straightDx * s) / straightSteps;
+                const stepY = currentY + (straightDy * s) / straightSteps;
+                
+                const crackIntersection = checkSimpleCrackIntersection(currentX, currentY, stepX, stepY);
+                if (crackIntersection) {
+                    foundStraightIntersection = crackIntersection;
+                    break;
+                }
+            }
+            
+            if (foundStraightIntersection) {
+                path.push(foundStraightIntersection);
                 return path; // Успешно достигли препятствия
             }
             
@@ -1970,7 +2032,7 @@ function findCircleIntersection(x1, y1, x2, y2, cx, cy, radius) {
 
 // Проверка пересечения с существующими зигзагообразными трещинами
 function checkSimpleCrackIntersection(x1, y1, x2, y2) {
-    const minDistance = 5; // Минимальное расстояние для проверки пересечений
+    const minDistance = 0.5; // Очень маленькое минимальное расстояние
     
     for (const existingCrack of activeCracks) {
         if (!existingCrack.path || existingCrack.path.length < 2) continue;
@@ -1980,24 +2042,22 @@ function checkSimpleCrackIntersection(x1, y1, x2, y2) {
             const segmentStart = existingCrack.path[i];
             const segmentEnd = existingCrack.path[i + 1];
             
-            // Пропускаем сегменты, которые начинаются очень близко к началу новой трещины
-            const distanceToStart = Math.sqrt((segmentStart.x - x1) ** 2 + (segmentStart.y - y1) ** 2);
-            const distanceToEnd = Math.sqrt((segmentEnd.x - x1) ** 2 + (segmentEnd.y - y1) ** 2);
-            
-            if (distanceToStart < minDistance && distanceToEnd < minDistance) {
-                continue; // Пропускаем сегменты, которые слишком близко к начальной точке
-            }
-            
             const intersection = findLineIntersection(
                 x1, y1, x2, y2,
                 segmentStart.x, segmentStart.y, segmentEnd.x, segmentEnd.y
             );
             
             if (intersection) {
-                // Дополнительная проверка - пересечение должно быть на достаточном расстоянии от начала
+                // Проверяем, что пересечение не в точке начала новой трещины
                 const intersectionDistance = Math.sqrt((intersection.x - x1) ** 2 + (intersection.y - y1) ** 2);
+                
                 if (intersectionDistance > minDistance) {
+                    if (isDev) {
+                        console.log(`✅ Найдено пересечение на расстоянии ${intersectionDistance.toFixed(2)} от начала`);
+                    }
                     return intersection;
+                } else if (isDev) {
+                    console.log(`🔍 Пропущено пересечение слишком близко к началу: расстояние ${intersectionDistance.toFixed(2)}`);
                 }
             }
         }
@@ -2019,10 +2079,12 @@ function findLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
     
     // Проверяем, что пересечение происходит внутри обоих отрезков
     if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-        return {
+        const intersection = {
             x: x1 + t * (x2 - x1),
             y: y1 + t * (y2 - y1)
         };
+        
+        return intersection;
     }
     
     return null;
