@@ -2091,15 +2091,199 @@ function findLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
 }
 
 
-// Проверка образования осколков (пока заглушка)
+// Проверка образования осколков и их откалывание
 function checkForChipFormation() {
-    // TODO: Реализовать алгоритм определения замкнутых областей
-    // Пока что проверяем, есть ли достаточно трещин для образования осколков
-    if (activeCracks.length > 5) {
+    if (activeCracks.length < 2) return; // Нужно минимум 2 трещины
+    
+    if (isDev) {
+        console.log('🔍 Проверяем образование осколков...');
+    }
+    
+    // Найти области, отделенные от центральной формы
+    const detachedAreas = findDetachedAreas();
+    
+    if (detachedAreas.length > 0) {
         if (isDev) {
-            console.log('🔍 Достаточно трещин для возможного образования осколков...');
+            console.log(`🧩 Найдено ${detachedAreas.length} отделенных областей`);
+        }
+        
+        // Создать и анимировать отколовшиеся куски
+        for (const area of detachedAreas) {
+            createChip(area);
         }
     }
+}
+
+// Определение центральной области (основной части печенья)
+function isPointInCoreArea(x, y) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return false;
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    const centerShapeConfig = CONFIG.centerShape;
+    const coreSize = (cookieSprite.width * centerShapeConfig.sizePercent) / 2;
+    
+    switch (centerShapeConfig.form) {
+        case 1: // Круг
+            const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            return distance <= coreSize;
+            
+        case 2: // Квадрат
+            return Math.abs(x - centerX) <= coreSize && Math.abs(y - centerY) <= coreSize;
+            
+        case 3: // Треугольник (упрощенный - как круг)
+            const triangleDistance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            return triangleDistance <= coreSize;
+            
+        default:
+            return false;
+    }
+}
+
+// Поиск областей, отделенных от центральной формы
+function findDetachedAreas() {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return [];
+    
+    const detachedAreas = [];
+    const cookieRadius = cookieSprite.width / 2;
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    
+    // Простой алгоритм: проверяем точки на окружности печенья
+    // Если точка не соединена с центральной областью трещинами, то она в отделенной области
+    const testPoints = [];
+    const numTestPoints = 32; // Количество тестовых точек по окружности
+    
+    for (let i = 0; i < numTestPoints; i++) {
+        const angle = (i / numTestPoints) * Math.PI * 2;
+        const testRadius = cookieRadius * 0.9; // Немного внутри края
+        const testX = centerX + Math.cos(angle) * testRadius;
+        const testY = centerY + Math.sin(angle) * testRadius;
+        
+        testPoints.push({ x: testX, y: testY, angle: angle });
+    }
+    
+    // Проверяем каждую тестовую точку
+    for (const point of testPoints) {
+        if (!isPointConnectedToCore(point.x, point.y)) {
+            // Точка отделена от центра - создаем область
+            const area = createAreaAroundPoint(point);
+            if (area && area.size > CONFIG.chips.minSize) {
+                detachedAreas.push(area);
+            }
+        }
+    }
+    
+    return detachedAreas;
+}
+
+// Проверка соединения точки с центральной областью
+function isPointConnectedToCore(x, y) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return true;
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    
+    // Проверяем, пересекает ли прямая линия от точки к центру какие-либо трещины
+    const intersections = [];
+    
+    for (const crack of activeCracks) {
+        if (!crack.path || crack.path.length < 2) continue;
+        
+        for (let i = 0; i < crack.path.length - 1; i++) {
+            const segmentStart = crack.path[i];
+            const segmentEnd = crack.path[i + 1];
+            
+            const intersection = findLineIntersection(
+                x, y, centerX, centerY,
+                segmentStart.x, segmentStart.y, segmentEnd.x, segmentEnd.y
+            );
+            
+            if (intersection) {
+                intersections.push(intersection);
+            }
+        }
+    }
+    
+    // Если нечетное количество пересечений, точка отделена
+    return intersections.length % 2 === 0;
+}
+
+// Создание области вокруг отделенной точки
+function createAreaAroundPoint(point) {
+    const areaSize = 40; // Размер области
+    return {
+        centerX: point.x,
+        centerY: point.y,
+        size: areaSize,
+        angle: point.angle
+    };
+}
+
+// Создание отколовшегося куска
+function createChip(area) {
+    if (isDev) {
+        console.log(`🍪 Создаем отколовшийся кусок в (${area.centerX.toFixed(1)}, ${area.centerY.toFixed(1)})`);
+    }
+    
+    // Создаем графический объект для куска
+    const chip = new Graphics();
+    chip.beginFill(CONFIG.chips.visual.color);
+    chip.drawCircle(0, 0, area.size / 2);
+    chip.endFill();
+    
+    // Позиционируем кусок
+    chip.x = area.centerX;
+    chip.y = area.centerY;
+    
+    // Добавляем в stage (поверх печенья)
+    app.stage.addChild(chip);
+    
+    // Анимация откалывания
+    animateChipFall(chip, area);
+}
+
+// Анимация падения куска
+function animateChipFall(chip, area) {
+    const physics = CONFIG.chips.physics;
+    
+    // Начальная скорость
+    let velocityX = physics.initialVelocity.x.min + 
+                   Math.random() * (physics.initialVelocity.x.max - physics.initialVelocity.x.min);
+    let velocityY = physics.initialVelocity.y.min + 
+                   Math.random() * (physics.initialVelocity.y.max - physics.initialVelocity.y.min);
+    
+    // Вращение
+    let rotationSpeed = physics.rotation.min + 
+                       Math.random() * (physics.rotation.max - physics.rotation.min);
+    
+    // Анимационный цикл
+    const animate = () => {
+        // Применяем физику
+        velocityY += physics.gravity;
+        chip.x += velocityX;
+        chip.y += velocityY;
+        chip.rotation += rotationSpeed;
+        
+        // Уменьшение размера и прозрачности
+        chip.scale.x *= CONFIG.chips.visual.scaleReduction;
+        chip.scale.y *= CONFIG.chips.visual.scaleReduction;
+        chip.alpha -= physics.fadeSpeed;
+        
+        // Проверяем, нужно ли продолжать анимацию
+        if (chip.alpha > 0 && chip.y < app.screen.height + 100) {
+            requestAnimationFrame(animate);
+        } else {
+            // Удаляем кусок
+            app.stage.removeChild(chip);
+            chip.destroy();
+        }
+    };
+    
+    animate();
 }
 
 // Запуск приложения
