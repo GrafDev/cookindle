@@ -658,8 +658,73 @@ function updateCookieSize() {
     // Обновляем размер иглы
     updateNeedleSize();
     
+    // Масштабируем и перемещаем трещины вместе с печеньем
+    scaleCracksWithCookie();
+    
     console.log('🍪 Размер печенья обновлен:', cookieSize);
     console.log('📍 Новая позиция:', cookieSprite.x, cookieSprite.y);
+}
+
+// Функция масштабирования трещин вместе с печеньем
+function scaleCracksWithCookie() {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite || activeCracks.length === 0) return;
+    
+    // Получаем новые размеры игровой области
+    const gameArea = document.querySelector('.game-area');
+    const gameWidth = gameArea.clientWidth;
+    const gameHeight = gameArea.clientHeight;
+    
+    // Вычисляем коэффициент масштабирования
+    const minSize = Math.min(gameWidth, gameHeight);
+    const newCookieSize = minSize * 0.7;
+    
+    // Получаем старые размеры из предыдущего состояния
+    const oldCookieSize = cookieSprite.width;
+    const scaleRatio = newCookieSize / oldCookieSize;
+    
+    // Центры печенья
+    const oldCenterX = cookieSprite.x;
+    const oldCenterY = cookieSprite.y;
+    const newCenterX = gameWidth / 2;
+    const newCenterY = gameHeight / 2;
+    
+    // Масштабируем все трещины
+    activeCracks.forEach(crack => {
+        if (crack.path && crack.path.length > 0) {
+            // Масштабируем и перемещаем каждую точку пути трещины
+            crack.path = crack.path.map(point => {
+                // Вычисляем относительную позицию от центра печенья
+                const relativeX = (point.x - oldCenterX) * scaleRatio;
+                const relativeY = (point.y - oldCenterY) * scaleRatio;
+                
+                return {
+                    x: newCenterX + relativeX,
+                    y: newCenterY + relativeY
+                };
+            });
+            
+            // Перерисовываем трещину с новыми координатами
+            drawZigzagCrack(crack);
+        }
+    });
+    
+    // Масштабируем контейнеры
+    if (cracksContainer) {
+        cracksContainer.x = newCenterX;
+        cracksContainer.y = newCenterY;
+        cracksContainer.scale.set(scaleRatio);
+    }
+    
+    if (chipsContainer) {
+        chipsContainer.x = newCenterX;
+        chipsContainer.y = newCenterY;
+        chipsContainer.scale.set(scaleRatio);
+    }
+    
+    if (isDev) {
+        console.log('🔄 Трещины масштабированы с коэффициентом:', scaleRatio);
+    }
 }
 
 // Обновление размера иглы при изменении окна
@@ -2223,27 +2288,199 @@ function createAreaAroundPoint(point) {
     };
 }
 
+// Трассировка границ отколовшейся области
+function traceChipBoundaries(area) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return [];
+    
+    const centerX = area.centerX;
+    const centerY = area.centerY;
+    const searchRadius = area.size;
+    
+    // Ищем границы области, ограниченной трещинами
+    const boundaries = [];
+    const angleStep = Math.PI / 32; // Шаг угла для трассировки
+    
+    // Обходим вокруг центра области
+    for (let angle = 0; angle < Math.PI * 2; angle += angleStep) {
+        const rayX = Math.cos(angle);
+        const rayY = Math.sin(angle);
+        
+        // Ищем пересечение с трещинами или границей печенья
+        let distance = 0;
+        const stepSize = 2;
+        const maxDistance = searchRadius * 1.5;
+        
+        while (distance < maxDistance) {
+            const testX = centerX + rayX * distance;
+            const testY = centerY + rayY * distance;
+            
+            // Проверяем пересечение с трещинами
+            if (isPointOnCrack(testX, testY) || !isPointInsideCookie(testX, testY)) {
+                // Найдена граница
+                boundaries.push(testX, testY);
+                break;
+            }
+            
+            distance += stepSize;
+        }
+        
+        // Если не нашли пересечение, используем максимальный радиус
+        if (distance >= maxDistance) {
+            const boundaryX = centerX + rayX * (searchRadius * 0.8);
+            const boundaryY = centerY + rayY * (searchRadius * 0.8);
+            boundaries.push(boundaryX, boundaryY);
+        }
+    }
+    
+    return boundaries;
+}
+
+// Проверка находится ли точка на трещине
+function isPointOnCrack(x, y) {
+    const tolerance = 3; // Допуск для попадания на трещину
+    
+    for (const crack of activeCracks) {
+        if (crack.points && crack.points.length > 0) {
+            for (let i = 0; i < crack.points.length - 1; i++) {
+                const p1 = crack.points[i];
+                const p2 = crack.points[i + 1];
+                
+                // Проверяем расстояние до отрезка трещины
+                const distance = distanceToLineSegment(x, y, p1.x, p1.y, p2.x, p2.y);
+                if (distance <= tolerance) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+
+// Расстояние от точки до отрезка
+function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    
+    if (length === 0) {
+        return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+    }
+    
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (length * length)));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    
+    return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+}
+
+// Построение полигона отколовшегося куска
+function buildChipPolygon(area) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return [];
+    
+    const centerX = area.centerX;
+    const centerY = area.centerY;
+    const cookieCenterX = cookieSprite.x;
+    const cookieCenterY = cookieSprite.y;
+    const cookieRadius = cookieSprite.width / 2;
+    
+    // Собираем все точки пересечений трещин вокруг области
+    const polygon = [];
+    
+    // Находим ближайшие трещины к данной области
+    const nearCracks = activeCracks.filter(crack => {
+        if (!crack.points || crack.points.length === 0) return false;
+        
+        // Проверяем расстояние от центра области до трещины
+        const startPoint = crack.points[0];
+        const distance = Math.sqrt(
+            (startPoint.x - centerX) ** 2 + (startPoint.y - centerY) ** 2
+        );
+        
+        return distance < area.size * 1.5; // Трещина близко к области
+    });
+    
+    if (nearCracks.length >= 2) {
+        // Берем точки из ближайших трещин
+        const allPoints = [];
+        
+        for (const crack of nearCracks) {
+            for (const point of crack.points) {
+                const distToArea = Math.sqrt(
+                    (point.x - centerX) ** 2 + (point.y - centerY) ** 2
+                );
+                
+                if (distToArea < area.size * 1.2) {
+                    allPoints.push({
+                        x: point.x,
+                        y: point.y,
+                        angle: Math.atan2(point.y - centerY, point.x - centerX)
+                    });
+                }
+            }
+        }
+        
+        // Сортируем точки по углу
+        allPoints.sort((a, b) => a.angle - b.angle);
+        
+        // Добавляем точки границы печенья между трещинами
+        for (let i = 0; i < allPoints.length; i++) {
+            const current = allPoints[i];
+            const next = allPoints[(i + 1) % allPoints.length];
+            
+            // Добавляем точку трещины
+            polygon.push(current.x, current.y);
+            
+            // Добавляем дугу по окружности печенья до следующей трещины
+            const angleStep = 0.3;
+            let angle = current.angle;
+            let nextAngle = next.angle;
+            
+            // Корректируем углы для правильного обхода
+            if (nextAngle < angle) nextAngle += Math.PI * 2;
+            
+            while (angle < nextAngle - angleStep) {
+                angle += angleStep;
+                const x = cookieCenterX + Math.cos(angle) * cookieRadius;
+                const y = cookieCenterY + Math.sin(angle) * cookieRadius;
+                polygon.push(x, y);
+            }
+        }
+    }
+    
+    return polygon;
+}
+
 // Создание отколовшегося куска
 function createChip(area) {
     if (isDev) {
-        console.log(`🍪 Создаем отколовшийся кусок в (${area.centerX.toFixed(1)}, ${area.centerY.toFixed(1)})`);
+        console.log(`🍪 Показываем отколовшийся кусок в (${area.centerX.toFixed(1)}, ${area.centerY.toFixed(1)})`);
     }
     
-    // Создаем графический объект для куска
-    const chip = new Graphics();
-    chip.beginFill(CONFIG.chips.visual.color);
-    chip.drawCircle(0, 0, area.size / 2);
-    chip.endFill();
+    // Простой подход - создаем полигон из пересекающихся трещин
+    const chipPolygon = buildChipPolygon(area);
     
-    // Позиционируем кусок
-    chip.x = area.centerX;
-    chip.y = area.centerY;
-    
-    // Добавляем в stage (поверх печенья)
-    app.stage.addChild(chip);
-    
-    // Анимация откалывания
-    animateChipFall(chip, area);
+    if (chipPolygon.length >= 6) { // Минимум 3 точки (6 координат)
+        const chip = new Graphics();
+        chip.beginFill(0xFF0000); // Красный цвет
+        chip.drawPolygon(chipPolygon);
+        chip.endFill();
+        chip.alpha = 0.5; // Полупрозрачность
+        
+        // Добавляем в stage (поверх печенья)
+        app.stage.addChild(chip);
+        
+        if (isDev) {
+            console.log(`🔍 Создан кусок-полигон с ${chipPolygon.length / 2} точками`);
+        }
+    } else {
+        if (isDev) {
+            console.log('⚠️ Не удалось создать полигон, недостаточно точек');
+        }
+    }
 }
 
 // Анимация падения куска
