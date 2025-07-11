@@ -579,9 +579,9 @@ function createCookie(app) {
     const gameWidth = gameArea.clientWidth;
     const gameHeight = gameArea.clientHeight;
     
-    // Вычисляем размер печенья (70% от минимальной стороны)
+    // Вычисляем размер печенья из конфига
     const minSize = Math.min(gameWidth, gameHeight);
-    const cookieSize = minSize * 0.7;
+    const cookieSize = minSize * CONFIG.cookie.sizePercent;
     
     // Создаем спрайт с текстурой
     const cookieTexture = Assets.get('cookie');
@@ -625,9 +625,9 @@ function updateCookieSize() {
     const gameWidth = gameArea.clientWidth;
     const gameHeight = gameArea.clientHeight;
     
-    // Вычисляем новый размер печенья (70% от минимальной стороны)
+    // Вычисляем новый размер печенья из конфига
     const minSize = Math.min(gameWidth, gameHeight);
-    const cookieSize = minSize * 0.7;
+    const cookieSize = minSize * CONFIG.cookie.sizePercent;
     
     // Обновляем размер спрайта
     cookieSprite.width = cookieSize;
@@ -672,7 +672,7 @@ function updateNeedleSize() {
     
     // Вычисляем новый размер иглы относительно печенья
     const minSize = Math.min(gameWidth, gameHeight);
-    const cookieSize = minSize * 0.7;
+    const cookieSize = minSize * CONFIG.cookie.sizePercent;
     const needleSize = cookieSize * (CONFIG.needle.sizePercent / 100);
     
     // Обновляем масштаб иглы
@@ -981,7 +981,7 @@ function createNeedle(app) {
     const gameWidth = gameArea.clientWidth;
     const gameHeight = gameArea.clientHeight;
     const minSize = Math.min(gameWidth, gameHeight);
-    const cookieSize = minSize * 0.7;
+    const cookieSize = minSize * CONFIG.cookie.sizePercent;
     const needleSize = cookieSize * (CONFIG.needle.sizePercent / 100);
     
     // Настройка основной иглы

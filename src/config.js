@@ -24,6 +24,7 @@ export const CONFIG = {
     
     // Параметры печенья
     cookie: {
+        sizePercent: 0.8, // Размер печенья в процентах от минимальной стороны экрана
         painting: "circle", // "circle", "star", "cross"
         patternColor: 0x3C1810, // Цвет узора (темно-коричневый)
         patternCount: 15, // Количество элементов узора
