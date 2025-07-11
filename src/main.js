@@ -703,8 +703,12 @@ function createCookie(app) {
     // Рисуем большой шестиугольник вокруг печенья
     const hexGraphics = drawBigHexagon(app, cookieSprite);
     
-    // Сохраняем ссылку на шестиугольник для обновления размера
+    // Размещаем маленькие шестиугольники
+    const smallHexagons = generateSmallHexagons(app, cookieSprite);
+    
+    // Сохраняем ссылки для обновления размера
     window.bigHexagon = hexGraphics;
+    window.smallHexagons = smallHexagons;
     
     if (isDev) {
         console.log('🍪 Размер печенья:', cookieSize);
@@ -751,6 +755,119 @@ function drawBigHexagon(app, cookieSprite) {
     }
     
     return hexGraphics;
+}
+
+// Генерация гексагональной сетки внутри окружности печенья
+function generateSmallHexagons(app, cookieSprite) {
+    const config = CONFIG.cookie.pieces;
+    const smallHexRadius = config.hexRadius; // Фиксированный размер из конфига
+    const cookieRadius = cookieSprite.width / 2;
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    
+    const hexagons = [];
+    let hexId = 0;
+    
+    if (isDev) {
+        console.log(`🔍 Создаем гексагональную сетку с размером шестиугольника ${smallHexRadius}px`);
+        console.log(`🔍 Радиус печенья: ${cookieRadius.toFixed(1)}px`);
+    }
+    
+    
+    // Создаем шестиугольник с возможностью поворота
+    function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0) {
+        const hexGraphics = new Graphics();
+        
+        // Рисуем шестиугольник с поворотом
+        const vertices = [];
+        for (let j = 0; j < 6; j++) {
+            const angle = (j * Math.PI) / 3 + rotationOffset; // 60 градусов между вершинами + поворот
+            const vx = x + Math.cos(angle) * smallHexRadius;
+            const vy = y + Math.sin(angle) * smallHexRadius;
+            vertices.push(vx, vy);
+        }
+        
+        hexGraphics.poly(vertices);
+        hexGraphics.stroke({ color: color, width: 1, alpha: 0.5 });
+        
+        // Добавляем на сцену
+        app.stage.addChild(hexGraphics);
+        
+        return {
+            id: `small_hex_${hexId}`,
+            graphics: hexGraphics,
+            x: x,
+            y: y,
+            radius: smallHexRadius,
+            index: hexId
+        };
+    }
+    
+    // Параметры гексагональной сетки
+    const rotationOffset = Math.PI / 6; // 30 градусов для всех
+    const hexWidth = smallHexRadius * Math.sqrt(3); // Ширина шестиугольника (расстояние между центрами по горизонтали)
+    const hexHeight = smallHexRadius * 1.5; // Высота между рядами (расстояние между центрами по вертикали)
+    
+    // Автоматически рассчитываем необходимый радиус сетки на основе размера печенья
+    const hexGridRadius = Math.ceil(cookieRadius / hexWidth) + 2; // +2 для запаса
+    
+    if (isDev) {
+        console.log(`🔍 Размер маленького шестиугольника: ${smallHexRadius}px`);
+        console.log(`🔍 Радиус печенья: ${cookieRadius.toFixed(1)}px`);
+        console.log(`🔍 Автоматически рассчитанный радиус сетки: ${hexGridRadius}`);
+        console.log(`🔍 Размеры: hexWidth=${hexWidth.toFixed(1)}, hexHeight=${hexHeight.toFixed(1)}`);
+    }
+    
+    // Генерируем гексагональную сетку с кубическими координатами
+    for (let q = -hexGridRadius; q <= hexGridRadius; q++) {
+        for (let r = Math.max(-hexGridRadius, -q - hexGridRadius); r <= Math.min(hexGridRadius, -q + hexGridRadius); r++) {
+            const s = -q - r;
+            
+            // Проверяем, что мы в границах шестиугольника
+            if (Math.abs(q) > hexGridRadius || Math.abs(r) > hexGridRadius || Math.abs(s) > hexGridRadius) {
+                continue;
+            }
+            
+            // Преобразуем кубические координаты (q, r, s) в декартовы (x, y)
+            const x = centerX + hexWidth * (q + r * 0.5);
+            const y = centerY + hexHeight * r;
+            
+            // Проверяем, пересекается ли шестиугольник с окружностью печенья
+            const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            
+            // Шестиугольник должен иметь общую площадь с печеньем
+            // Условие: расстояние от центра шестиугольника до центра печенья <= радиус печенья + радиус шестиугольника
+            if (distanceFromCenter > cookieRadius + smallHexRadius) {
+                continue; // Шестиугольник полностью вне печенья
+            }
+            
+            // Дополнительная проверка: шестиугольник не должен быть слишком далеко от печенья
+            // Если центр шестиугольника дальше чем радиус печенья - радиус шестиугольника, 
+            // то он может частично выходить за границы
+            const isInsideCookie = distanceFromCenter <= cookieRadius - smallHexRadius;
+            const hasIntersection = distanceFromCenter <= cookieRadius + smallHexRadius;
+            
+            if (!hasIntersection) {
+                continue; // Нет пересечения с печеньем
+            }
+            
+            // Цвет в зависимости от того, полностью ли шестиугольник внутри печенья
+            const color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
+            
+            const hex = createHexagon(x, y, hexId++, color, rotationOffset);
+            hexagons.push(hex);
+            
+            if (isDev) {
+                console.log(`🔸 Hex (${q}, ${r}, ${s}): позиция (${x.toFixed(1)}, ${y.toFixed(1)}), расстояние=${distanceFromCenter.toFixed(1)}, внутри=${isInsideCookie}`);
+            }
+        }
+    }
+    
+    if (isDev) {
+        console.log(`✅ Создано ${hexagons.length} маленьких шестиугольников между противоположными углами`);
+    }
+    
+    return hexagons;
 }
 
 
@@ -809,6 +926,24 @@ function updateCookieSize() {
         
         // Обновляем ссылку
         window.bigHexagon = newHexagon;
+    }
+    
+    // Обновляем маленькие шестиугольники
+    const smallHexagons = window.smallHexagons;
+    if (smallHexagons && smallHexagons.length > 0) {
+        // Удаляем старые шестиугольники
+        smallHexagons.forEach(hex => {
+            if (hex.graphics && hex.graphics.parent) {
+                hex.graphics.parent.removeChild(hex.graphics);
+                hex.graphics.destroy();
+            }
+        });
+        
+        // Создаем новые с обновленным размером
+        const newSmallHexagons = generateSmallHexagons(window.app, cookieSprite);
+        
+        // Обновляем ссылку
+        window.smallHexagons = newSmallHexagons;
     }
     
     // Обновляем размер иглы

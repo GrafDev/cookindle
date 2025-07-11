@@ -35,7 +35,7 @@ export const CONFIG = {
         },
         // Параметры кусочков-масок (как в игре Gemblo)
         pieces: {
-            gridSize: 10, 
+            hexRadius: 15, // Радиус маленького шестиугольника в пикселях 
             chipAnimation: {
                 duration: 1.5, // Длительность падения в секундах
                 gravity: 300, // Сила гравитации
