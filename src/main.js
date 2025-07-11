@@ -14,6 +14,7 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
 let needleBaseY = 0; // Базовая позиция Y для анимации нажатия
 let needlePressed = false; // Состояние нажатия
 let currentClickPoint = { x: 0, y: 0 }; // Текущая точка клика/касания
+let isDragging = false; // Состояние перетаскивания
 
 // Глобальные переменные для системы отколов
 let chipsContainer = null; // Контейнер для падающих осколков
@@ -689,7 +690,9 @@ function createCookie(app) {
     cookieSprite.x = gameWidth / 2;
     cookieSprite.y = gameHeight / 2;
     
-    // Добавляем на сцену
+    // Скрываем печеньку - она нужна только для захвата текстуры
+    cookieSprite.visible = false;
+    // Добавляем на сцену (но невидимую)
     app.stage.addChild(cookieSprite);
     
     // Создаем и добавляем центральную форму поверх печенья
@@ -801,19 +804,76 @@ function generateSmallHexagons(app, cookieSprite) {
             vertices.push(vx, vy);
         }
         
+        // Создаем спрайт с полной текстурой печеньки
+        const cookieTexture = Assets.get('cookie');
+        const textureSprite = new Sprite(cookieTexture);
+        
+        // Позиционируем спрайт так, чтобы он точно совпадал с оригинальной печенькой
+        textureSprite.anchor.set(0.5);
+        textureSprite.width = cookieSprite.width;
+        textureSprite.height = cookieSprite.height;
+        textureSprite.x = x;
+        textureSprite.y = y;
+        
+        // Смещаем текстуру так, чтобы под шестиугольником была правильная часть
+        const offsetX = x - cookieSprite.x;
+        const offsetY = y - cookieSprite.y;
+        textureSprite.x = cookieSprite.x;
+        textureSprite.y = cookieSprite.y;
+        
+        // Создаем маску шестиугольника в локальных координатах
+        const mask = new Graphics();
+        // Создаем вершины относительно позиции шестиугольника
+        const localVertices = [];
+        for (let j = 0; j < 6; j++) {
+            const angle = (j * Math.PI) / 3 + rotationOffset;
+            const vx = Math.cos(angle) * smallHexRadius;
+            const vy = Math.sin(angle) * smallHexRadius;
+            localVertices.push(vx, vy);
+        }
+        mask.poly(localVertices);
+        mask.fill({ color: 0xFFFFFF });
+        mask.x = x;
+        mask.y = y;
+        
+        // Применяем маску к спрайту
+        textureSprite.mask = mask;
+        
+        // Создаем контейнер для шестиугольника
+        const hexContainer = new Container();
+        hexContainer.addChild(textureSprite);
+        hexContainer.addChild(mask);
+        
+        // Добавляем обводку
         hexGraphics.poly(vertices);
         hexGraphics.stroke({ color: color, width: 1, alpha: 0.5 });
+        hexContainer.addChild(hexGraphics);
+        
+        // Делаем интерактивным
+        hexContainer.eventMode = 'static';
+        hexContainer.cursor = 'pointer';
+        
+        // Добавляем обработчик клика для анимации падения
+        hexContainer.on('pointerdown', () => {
+            animateHexagonFall(hexContainer, smallHexRadius);
+        });
         
         // Добавляем на сцену
-        app.stage.addChild(hexGraphics);
+        app.stage.addChild(hexContainer);
         
         return {
             id: `small_hex_${hexId}`,
             graphics: hexGraphics,
+            container: hexContainer,
+            textureSprite: textureSprite,
+            mask: mask,
             x: x,
             y: y,
             radius: smallHexRadius,
-            index: hexId
+            index: hexId,
+            originalColor: color,
+            currentColor: color,
+            isPainted: false
         };
     }
     
@@ -947,7 +1007,10 @@ function updateCookieSize() {
     if (smallHexagons && smallHexagons.length > 0) {
         // Удаляем старые шестиугольники
         smallHexagons.forEach(hex => {
-            if (hex.graphics && hex.graphics.parent) {
+            if (hex.container && hex.container.parent) {
+                hex.container.parent.removeChild(hex.container);
+                hex.container.destroy();
+            } else if (hex.graphics && hex.graphics.parent) {
                 hex.graphics.parent.removeChild(hex.graphics);
                 hex.graphics.destroy();
             }
@@ -966,6 +1029,109 @@ function updateCookieSize() {
     
     console.log('🍪 Размер печенья обновлен:', cookieSize);
     console.log('📍 Новая позиция:', cookieSprite.x, cookieSprite.y);
+}
+
+// ===================================
+// СИСТЕМА ОКРАШИВАНИЯ ШЕСТИУГОЛЬНИКОВ
+// ===================================
+
+// Проверка попадания точки в шестиугольник
+function isPointInHexagon(pointX, pointY, hexagon) {
+    const hexX = hexagon.x;
+    const hexY = hexagon.y;
+    const radius = hexagon.radius;
+    
+    // Используем алгоритм проверки попадания в правильный шестиугольник
+    // Переводим точку в локальные координаты шестиугольника
+    const dx = pointX - hexX;
+    const dy = pointY - hexY;
+    
+    // Поворачиваем точку на -30 градусов (обратно повороту шестиугольника)
+    const rotationOffset = -Math.PI / 6;
+    const cos = Math.cos(rotationOffset);
+    const sin = Math.sin(rotationOffset);
+    const rotatedX = dx * cos - dy * sin;
+    const rotatedY = dx * sin + dy * cos;
+    
+    // Проверяем попадание в правильный шестиугольник методом осей
+    const absX = Math.abs(rotatedX);
+    const absY = Math.abs(rotatedY);
+    
+    // Радиус описанной окружности равен радиусу шестиугольника
+    const hexRadius = radius;
+    const hexHeight = hexRadius * Math.sqrt(3) / 2; // Высота от центра до грани
+    
+    // Три условия для правильного шестиугольника:
+    // 1. Расстояние по Y не превышает высоту шестиугольника
+    if (absY > hexHeight) return false;
+    
+    // 2. Расстояние по X не превышает радиус
+    if (absX > hexRadius) return false;
+    
+    // 3. Проверка диагональных граней
+    if (absX + absY * Math.sqrt(3) > hexRadius * 2) return false;
+    
+    return true;
+}
+
+// Поиск шестиугольника под точкой
+function findHexagonAtPoint(x, y) {
+    const smallHexagons = window.smallHexagons;
+    if (!smallHexagons) return null;
+    
+    // Проходим по всем шестиугольникам и ищем попадание
+    for (const hexagon of smallHexagons) {
+        if (isPointInHexagon(x, y, hexagon)) {
+            return hexagon;
+        }
+    }
+    
+    return null;
+}
+
+// Окрашивание шестиугольника в красный цвет
+function paintHexagon(hexagon, color = 0xFF0000) {
+    if (!hexagon || hexagon.isPainted) return false;
+    
+    // Перерисовываем шестиугольник с новым цветом
+    const graphics = hexagon.graphics;
+    graphics.clear();
+    
+    // Рисуем шестиугольник с новым цветом заливки
+    const vertices = [];
+    const rotationOffset = Math.PI / 6; // 30 градусов поворот
+    for (let j = 0; j < 6; j++) {
+        const angle = (j * Math.PI) / 3 + rotationOffset;
+        const vx = hexagon.x + Math.cos(angle) * hexagon.radius;
+        const vy = hexagon.y + Math.sin(angle) * hexagon.radius;
+        vertices.push(vx, vy);
+    }
+    
+    graphics.poly(vertices);
+    graphics.fill(color); // Заливка красным цветом
+    graphics.stroke({ color: hexagon.originalColor, width: 1, alpha: 0.5 }); // Оставляем оригинальную обводку
+    
+    // Обновляем состояние шестиугольника
+    hexagon.currentColor = color;
+    hexagon.isPainted = true;
+    
+    if (isDev) {
+        console.log(`🔴 Шестиугольник ${hexagon.id} окрашен в красный`);
+    }
+    
+    return true;
+}
+
+// Обработка нажатия иглы на шестиугольники
+function handleNeedlePaintingAtPoint(x, y) {
+    if (!needlePressed) return false;
+    
+    const hexagon = findHexagonAtPoint(x, y);
+    if (hexagon && !hexagon.isPainted) {
+        return paintHexagon(hexagon);
+    }
+    
+    return false;
 }
 
 
@@ -1400,6 +1566,11 @@ function setupDesktopInteractivity(gameArea) {
         const y = event.clientY - rect.top;
         
         updateNeedlePosition(x, y, 'mouse');
+        
+        // Если мышь зажата и перемещается - окрашиваем шестиугольники
+        if (isDragging && needlePressed) {
+            handleNeedlePaintingAtPoint(x, y);
+        }
     });
     
     // Обработка входа мыши в область
@@ -1411,16 +1582,25 @@ function setupDesktopInteractivity(gameArea) {
     gameArea.addEventListener('mouseleave', () => {
         hideNeedle();
         animateNeedlePress(false); // Отпускаем иглу при выходе
+        isDragging = false; // Останавливаем перетаскивание
     });
     
     // Обработка нажатия мыши
     gameArea.addEventListener('mousedown', (event) => {
         event.preventDefault();
+        isDragging = true;
         animateNeedlePress(true);
+        
+        // Сразу окрашиваем шестиугольник под иглой
+        const rect = gameArea.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        handleNeedlePaintingAtPoint(x, y);
     });
     
     gameArea.addEventListener('mouseup', () => {
         animateNeedlePress(false);
+        isDragging = false;
     });
 }
 
@@ -1783,6 +1963,72 @@ function animateNeedleToTouch(targetX, targetY) {
     }
     
     needleSprite.moveAnimation = requestAnimationFrame(animate);
+}
+
+// Анимация падения шестиугольника
+function animateHexagonFall(hexContainer, hexRadius) {
+    const config = CONFIG.cookie.pieces.chipAnimation;
+    
+    // Начальные параметры
+    const startX = hexContainer.x;
+    const startY = hexContainer.y;
+    const startScale = hexContainer.scale.x;
+    const startAlpha = hexContainer.alpha;
+    
+    // Случайные параметры движения
+    const velocityX = config.initialVelocity.x.min + 
+                     Math.random() * (config.initialVelocity.x.max - config.initialVelocity.x.min);
+    const velocityY = config.initialVelocity.y.min + 
+                     Math.random() * (config.initialVelocity.y.max - config.initialVelocity.y.min);
+    const rotationSpeed = config.rotation.min + 
+                         Math.random() * (config.rotation.max - config.rotation.min);
+    
+    // Параметры анимации
+    const duration = config.duration * 1000; // в миллисекундах
+    const startTime = performance.now();
+    
+    // Получаем размеры экрана для определения когда удалить объект
+    const gameArea = document.querySelector('.game-area');
+    const screenHeight = gameArea.clientHeight;
+    
+    function animate() {
+        const now = performance.now();
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const timeSeconds = elapsed / 1000;
+        
+        // Физика движения
+        const currentX = startX + velocityX * timeSeconds;
+        const currentY = startY + velocityY * timeSeconds + 0.5 * config.gravity * timeSeconds * timeSeconds;
+        const currentRotation = hexContainer.rotation + rotationSpeed * timeSeconds;
+        
+        // Применяем изменения
+        hexContainer.x = currentX;
+        hexContainer.y = currentY;
+        hexContainer.rotation = currentRotation;
+        
+        // Эффекты масштабирования и исчезновения
+        if (config.fadeOut) {
+            hexContainer.alpha = startAlpha * (1 - progress * 0.8); // Постепенное исчезновение
+        }
+        
+        const scaleProgress = Math.min(progress * 2, 1); // Ускоренное уменьшение
+        const currentScale = startScale * (config.scale.from + (config.scale.to - config.scale.from) * scaleProgress);
+        hexContainer.scale.set(currentScale);
+        
+        // Продолжаем анимацию если объект еще видим
+        if (currentY < screenHeight + hexRadius * 2 && progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            // Удаляем объект после окончания анимации
+            if (hexContainer.parent) {
+                hexContainer.parent.removeChild(hexContainer);
+                hexContainer.destroy();
+            }
+        }
+    }
+    
+    animate();
 }
 
 // Функция интерполяции цветов
