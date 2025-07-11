@@ -812,12 +812,6 @@ function generateSmallHexagons(app, cookieSprite) {
         textureSprite.anchor.set(0.5);
         textureSprite.width = cookieSprite.width;
         textureSprite.height = cookieSprite.height;
-        textureSprite.x = x;
-        textureSprite.y = y;
-        
-        // Смещаем текстуру так, чтобы под шестиугольником была правильная часть
-        const offsetX = x - cookieSprite.x;
-        const offsetY = y - cookieSprite.y;
         textureSprite.x = cookieSprite.x;
         textureSprite.y = cookieSprite.y;
         
@@ -841,13 +835,21 @@ function generateSmallHexagons(app, cookieSprite) {
         
         // Создаем контейнер для шестиугольника
         const hexContainer = new Container();
+        
+        // Контейнер позиционируется в позиции шестиугольника
+        hexContainer.x = x;
+        hexContainer.y = y;
+        
+        // Смещаем элементы относительно позиции контейнера
+        textureSprite.x = cookieSprite.x - x;
+        textureSprite.y = cookieSprite.y - y;
+        mask.x = 0;
+        mask.y = 0;
+        
         hexContainer.addChild(textureSprite);
         hexContainer.addChild(mask);
         
-        // Добавляем обводку
-        hexGraphics.poly(vertices);
-        hexGraphics.stroke({ color: color, width: 1, alpha: 0.5 });
-        hexContainer.addChild(hexGraphics);
+        // Убираем обводку - оставляем только текстуру
         
         // Делаем интерактивным
         hexContainer.eventMode = 'static';
@@ -855,7 +857,7 @@ function generateSmallHexagons(app, cookieSprite) {
         
         // Добавляем обработчик клика для анимации падения
         hexContainer.on('pointerdown', () => {
-            animateHexagonFall(hexContainer, smallHexRadius);
+            animateHexagonFall(hexContainer, smallHexRadius, x, y);
         });
         
         // Добавляем на сцену
@@ -863,7 +865,7 @@ function generateSmallHexagons(app, cookieSprite) {
         
         return {
             id: `small_hex_${hexId}`,
-            graphics: hexGraphics,
+            graphics: null, // Убираем graphics так как нет обводки
             container: hexContainer,
             textureSprite: textureSprite,
             mask: mask,
@@ -1128,7 +1130,13 @@ function handleNeedlePaintingAtPoint(x, y) {
     
     const hexagon = findHexagonAtPoint(x, y);
     if (hexagon && !hexagon.isPainted) {
-        return paintHexagon(hexagon);
+        // Запускаем анимацию падения вместо закраски
+        if (hexagon.container) {
+            // Передаем реальные координаты шестиугольника
+            animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
+            hexagon.isPainted = true; // Помечаем как обработанный
+            return true;
+        }
     }
     
     return false;
@@ -1966,58 +1974,67 @@ function animateNeedleToTouch(targetX, targetY) {
 }
 
 // Анимация падения шестиугольника
-function animateHexagonFall(hexContainer, hexRadius) {
+function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
     const config = CONFIG.cookie.pieces.chipAnimation;
     
-    // Начальные параметры
-    const startX = hexContainer.x;
-    const startY = hexContainer.y;
+    // Начальные параметры - используем реальные координаты
+    const startX = realX || hexContainer.x;
+    const startY = realY || hexContainer.y;
     const startScale = hexContainer.scale.x;
     const startAlpha = hexContainer.alpha;
     
-    // Случайные параметры движения
-    const velocityX = config.initialVelocity.x.min + 
-                     Math.random() * (config.initialVelocity.x.max - config.initialVelocity.x.min);
-    const velocityY = config.initialVelocity.y.min + 
-                     Math.random() * (config.initialVelocity.y.max - config.initialVelocity.y.min);
-    const rotationSpeed = config.rotation.min + 
-                         Math.random() * (config.rotation.max - config.rotation.min);
+    // Параметры движения - только вниз без вращения
+    const velocityX = 0; // Убираем горизонтальное движение
+    const velocityY = 0; // Начальная скорость по Y = 0, будет только гравитация
     
     // Параметры анимации
     const duration = config.duration * 1000; // в миллисекундах
     const startTime = performance.now();
+    let lastLogTime = startTime;
     
     // Получаем размеры экрана для определения когда удалить объект
     const gameArea = document.querySelector('.game-area');
     const screenHeight = gameArea.clientHeight;
     
+    console.log(`🔽 Шестиугольник начал падение с позиции (${startX.toFixed(1)}, ${startY.toFixed(1)})`);
+    
     function animate() {
+        // Проверяем что контейнер еще существует
+        if (!hexContainer || !hexContainer.parent) {
+            return;
+        }
+        
         const now = performance.now();
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const timeSeconds = elapsed / 1000;
         
-        // Физика движения
-        const currentX = startX + velocityX * timeSeconds;
-        const currentY = startY + velocityY * timeSeconds + 0.5 * config.gravity * timeSeconds * timeSeconds;
-        const currentRotation = hexContainer.rotation + rotationSpeed * timeSeconds;
+        // Простое плавное движение вниз без вращения
+        const fallDistance = screenHeight + hexRadius * 2; // Расстояние падения
+        const currentY = startY + fallDistance * progress;
         
-        // Применяем изменения
-        hexContainer.x = currentX;
+        // Применяем изменения - только по Y, без вращения
+        hexContainer.x = startX; // Фиксируем X координату
         hexContainer.y = currentY;
-        hexContainer.rotation = currentRotation;
+        
+        // Логируем координаты каждую секунду
+        if (now - lastLogTime >= 1000) {
+            console.log(`📍 Позиция шестиугольника: (${hexContainer.x.toFixed(1)}, ${hexContainer.y.toFixed(1)}) прогресс: ${(progress * 100).toFixed(1)}%`);
+            lastLogTime = now;
+        }
         
         // Эффекты масштабирования и исчезновения
-        if (config.fadeOut) {
+        if (config.fadeOut && hexContainer) {
             hexContainer.alpha = startAlpha * (1 - progress * 0.8); // Постепенное исчезновение
         }
         
-        const scaleProgress = Math.min(progress * 2, 1); // Ускоренное уменьшение
-        const currentScale = startScale * (config.scale.from + (config.scale.to - config.scale.from) * scaleProgress);
-        hexContainer.scale.set(currentScale);
+        if (hexContainer) {
+            const scaleProgress = Math.min(progress * 2, 1); // Ускоренное уменьшение
+            const currentScale = startScale * (config.scale.from + (config.scale.to - config.scale.from) * scaleProgress);
+            hexContainer.scale.set(currentScale);
+        }
         
-        // Продолжаем анимацию если объект еще видим
-        if (currentY < screenHeight + hexRadius * 2 && progress < 1) {
+        // Продолжаем анимацию пока не закончится
+        if (progress < 1) {
             requestAnimationFrame(animate);
         } else {
             // Удаляем объект после окончания анимации
