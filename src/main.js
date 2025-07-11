@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Texture, BlurFilter } from 'pixi.js';
+import { Application, Assets, Sprite, Graphics, Texture, BlurFilter, Container } from 'pixi.js';
 import { CONFIG } from './config.js';
 
 // Определяем режим разработки
@@ -18,6 +18,7 @@ let currentClickPoint = { x: 0, y: 0 }; // Текущая точка клика/
 // Глобальные переменные для системы отколов
 let chipsContainer = null; // Контейнер для падающих осколков
 let activeChips = []; // Массив падающих осколков
+
 
 // Активируем dev режим в HTML
 if (isDev) {
@@ -120,6 +121,7 @@ async function initApp() {
         width: gameArea.clientWidth,
         height: gameArea.clientHeight,
         backgroundColor: CONFIG.pixi.backgroundColor,
+        backgroundAlpha: CONFIG.pixi.backgroundAlpha,
         resizeTo: gameArea
     });
     
@@ -151,11 +153,49 @@ async function initApp() {
     return app;
 }
 
+// Установка прозрачных фонов для CSS элементов
+function makeBackgroundsTransparent() {
+    // Убираем отступы и фон у html и body
+    document.documentElement.style.cssText = `
+        margin: 0;
+        padding: 0;
+        background: transparent;
+    `;
+    
+    document.body.style.cssText = `
+        margin: 0;
+        padding: 0;
+        background: transparent;
+    `;
+    
+    // Убираем фон у layout
+    const layout = document.querySelector('.layout');
+    if (layout) {
+        layout.style.backgroundColor = 'transparent';
+    }
+    
+    // Убираем фон у game-area
+    const gameArea = document.querySelector('.game-area');
+    if (gameArea) {
+        gameArea.style.backgroundColor = 'transparent';
+    }
+    
+    if (isDev) {
+        console.log('🔍 CSS фоны сделаны прозрачными, отступы убраны');
+    }
+}
+
 // Инициализация игры
 async function initGame(app) {
     try {
         // Загрузка ресурсов
         await loadAssets();
+        
+        // Делаем CSS фоны прозрачными
+        makeBackgroundsTransparent();
+        
+        // Создаем фон
+        createBackground(app);
         
         // Создаем печенье
         createCookie(app);
@@ -184,14 +224,37 @@ async function initGame(app) {
 // Загрузка ресурсов
 async function loadAssets() {
     try {
-        // Способ 1: Прямая загрузка изображения (обходим баг PixiJS Assets)
+        // Загружаем фон приложения
+        const bgImageUrl = (await import('./assets/textures/bg.png')).default;
+        
+        // Загружаем печенье
         const cookieImageUrl = (await import('./assets/textures/bg_cooke.png')).default;
         
         if (isDev) {
-            console.log('🔍 Загружаем изображение напрямую');
-            console.log('📁 URL текстуры:', cookieImageUrl);
+            console.log('🔍 Загружаем изображения напрямую');
+            console.log('📁 URL фона:', bgImageUrl);
+            console.log('📁 URL печенья:', cookieImageUrl);
         }
         
+        // Загружаем фон
+        if (bgImageUrl) {
+            const bgImg = new Image();
+            const bgLoaded = new Promise((resolve, reject) => {
+                bgImg.onload = () => resolve(bgImg);
+                bgImg.onerror = reject;
+            });
+            bgImg.src = bgImageUrl;
+            await bgLoaded;
+            
+            const bgTexture = Texture.from(bgImg);
+            Assets.cache.set('background', bgTexture);
+            
+            if (isDev) {
+                console.log('✅ Текстура фона загружена:', bgTexture.width, 'x', bgTexture.height);
+            }
+        }
+        
+        // Загружаем печенье
         if (cookieImageUrl) {
             // Создаем Image элемент
             const img = new Image();
@@ -572,6 +635,38 @@ function createPixiTexture() {
     }
 }
 
+// Создаем фон всего приложения
+function createBackground(app) {
+    const backgroundTexture = Assets.get('background');
+    if (!backgroundTexture) return;
+    
+    // Создаем фон как CSS элемент на всю страницу
+    const bgElement = document.createElement('div');
+    bgElement.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-image: url('${backgroundTexture.source.resource.src}');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        z-index: -1000;
+        pointer-events: none;
+    `;
+    
+    // Добавляем в body (не в gameArea!)
+    document.body.appendChild(bgElement);
+    
+    // Сохраняем ссылку
+    window.background = bgElement;
+    
+    if (isDev) {
+        console.log('🖼️ Фон создан на весь экран:', window.innerWidth, 'x', window.innerHeight);
+    }
+}
+
 // Создаем печенье
 function createCookie(app) {
     // Получаем размеры игровой области
@@ -605,6 +700,12 @@ function createCookie(app) {
     window.cookie = cookieSprite;
     window.centerShape = centerShapeContainer;
     
+    // Рисуем большой шестиугольник вокруг печенья
+    const hexGraphics = drawBigHexagon(app, cookieSprite);
+    
+    // Сохраняем ссылку на шестиугольник для обновления размера
+    window.bigHexagon = hexGraphics;
+    
     if (isDev) {
         console.log('🍪 Размер печенья:', cookieSize);
         console.log('📍 Позиция:', cookieSprite.x, cookieSprite.y);
@@ -613,17 +714,63 @@ function createCookie(app) {
     return cookieSprite;
 }
 
+// ========================
+// СИСТЕМА ШЕСТИУГОЛЬНИКОВ
+// ========================
+
+// Рисование большого шестиугольника вокруг печенья
+function drawBigHexagon(app, cookieSprite) {
+    const cookieRadius = cookieSprite.width / 2;
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    
+    // Радиус описанного шестиугольника = радиус вписанной окружности / cos(30°)
+    const bigHexRadius = cookieRadius / Math.cos(Math.PI / 6);
+    
+    // Создаем графику для шестиугольника
+    const hexGraphics = new Graphics();
+    
+    // Рисуем шестиугольник
+    const vertices = [];
+    for (let i = 0; i < 6; i++) {
+        const angle = (i * Math.PI) / 3; // 60 градусов между вершинами
+        const x = centerX + Math.cos(angle) * bigHexRadius;
+        const y = centerY + Math.sin(angle) * bigHexRadius;
+        vertices.push(x, y);
+    }
+    
+    hexGraphics.poly(vertices);
+    hexGraphics.stroke({ color: 0xFF0000, width: 3, alpha: 0.8 });
+    
+    // Добавляем на сцену
+    app.stage.addChild(hexGraphics);
+    
+    if (isDev) {
+        console.log(`🔷 Нарисован большой шестиугольник радиуса ${bigHexRadius.toFixed(1)}`);
+        console.log(`🍪 Печенька радиуса ${cookieRadius.toFixed(1)} вписана в шестиугольник`);
+    }
+    
+    return hexGraphics;
+}
+
+
 // Обновление размера печенья при изменении окна
 function updateCookieSize() {
-    // Получаем печенье из кеша
+    // Получаем элементы из кеша
     const cookieSprite = window.cookie;
     const centerShapeGraphics = window.centerShape;
+    const backgroundSprite = window.background;
     if (!cookieSprite) return;
     
     // Получаем новые размеры игровой области
     const gameArea = document.querySelector('.game-area');
     const gameWidth = gameArea.clientWidth;
     const gameHeight = gameArea.clientHeight;
+    
+    // Обновляем размер фона (CSS элемент автоматически масштабируется)
+    if (window.background && isDev) {
+        console.log('🖼️ Фон обновлен под новый размер экрана');
+    }
     
     // Вычисляем новый размер печенья из конфига
     const minSize = Math.min(gameWidth, gameHeight);
@@ -649,6 +796,19 @@ function updateCookieSize() {
         
         // Обновляем ссылку
         window.centerShape = newCenterShape;
+    }
+    
+    // Обновляем большой шестиугольник
+    const bigHexagon = window.bigHexagon;
+    if (bigHexagon) {
+        // Удаляем старый шестиугольник
+        bigHexagon.parent?.removeChild(bigHexagon);
+        
+        // Создаем новый с обновленным размером
+        const newHexagon = drawBigHexagon(window.app, cookieSprite);
+        
+        // Обновляем ссылку
+        window.bigHexagon = newHexagon;
     }
     
     // Обновляем размер иглы
@@ -1365,7 +1525,10 @@ function animateNeedlePress(pressed) {
         }
         
         if (insideCookie) {
-            // Основная логика нажатия
+            // Пока просто логируем клик внутри печеньки
+            if (isDev) {
+                console.log(`🔨 Клик иглой внутри печеньки в точке (${currentClickPoint.x.toFixed(1)}, ${currentClickPoint.y.toFixed(1)})`);
+            }
         }
     }
     
@@ -1772,9 +1935,7 @@ function createChip(area) {
     
     // Создаем графический объект для куска
     const chip = new Graphics();
-    chip.beginFill(CONFIG.chips.visual.color);
-    chip.drawCircle(0, 0, area.size / 2);
-    chip.endFill();
+    chip.circle(0, 0, area.size / 2).fill(CONFIG.chips.visual.color);
     
     // Позиционируем кусок
     chip.x = area.centerX;

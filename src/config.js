@@ -14,12 +14,13 @@ export const CONFIG = {
     // Параметры игровой области
     gameArea: {
         borderRadius: 5,
-        backgroundColor: '#fafafa'
+        backgroundColor: 'transparent' // Прозрачный фон
     },
     
     // Параметры PixiJS
     pixi: {
-        backgroundColor: 0x1099bb
+        backgroundColor: 0x000000, // Черный или прозрачный
+        backgroundAlpha: 0 // Полностью прозрачный
     },
     
     // Параметры печенья
@@ -31,6 +32,21 @@ export const CONFIG = {
         patternSize: {
             min: 8,
             max: 20
+        },
+        // Параметры кусочков-масок (как в игре Gemblo)
+        pieces: {
+            gridSize: 10, 
+            chipAnimation: {
+                duration: 1.5, // Длительность падения в секундах
+                gravity: 300, // Сила гравитации
+                initialVelocity: {
+                    x: { min: -50, max: 50 }, // Начальная скорость по X
+                    y: { min: -100, max: -50 } // Начальная скорость по Y
+                },
+                rotation: { min: -3, max: 3 }, // Скорость вращения
+                fadeOut: true, // Исчезновение при падении
+                scale: { from: 1, to: 0.8 } // Уменьшение размера
+            }
         }
     },
     
