@@ -175,11 +175,21 @@ function makeBackgroundsTransparent() {
         layout.style.backgroundColor = 'transparent';
     }
     
-    // Убираем фон у game-area
+    // Убираем фон у game-area и скрываем курсор
     const gameArea = document.querySelector('.game-area');
+    const canvas = document.getElementById('game-canvas');
+    
     if (gameArea) {
         gameArea.style.backgroundColor = 'transparent';
+        gameArea.style.cursor = 'none'; // Скрываем курсор, так как используем иглу
     }
+    
+    if (canvas) {
+        canvas.style.cursor = 'none'; // Скрываем курсор на канвасе
+    }
+    
+    // Скрываем курсор на всем body для надежности
+    document.body.style.cursor = 'none';
     
     if (isDev) {
         console.log('🔍 CSS фоны сделаны прозрачными, отступы убраны');
@@ -703,14 +713,14 @@ function createCookie(app) {
     window.cookie = cookieSprite;
     window.centerShape = centerShapeContainer;
     
-    // Рисуем большой шестиугольник вокруг печенья
-    const hexGraphics = drawBigHexagon(app, cookieSprite);
+    // Скрываем большой шестиугольник
+    // const hexGraphics = drawBigHexagon(app, cookieSprite);
     
     // Размещаем маленькие шестиугольники
     const smallHexagons = generateSmallHexagons(app, cookieSprite);
     
     // Сохраняем ссылки для обновления размера
-    window.bigHexagon = hexGraphics;
+    // window.bigHexagon = hexGraphics; // Большой шестиугольник скрыт
     window.smallHexagons = smallHexagons;
     
     if (isDev) {
@@ -795,12 +805,14 @@ function generateSmallHexagons(app, cookieSprite) {
     function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0) {
         const hexGraphics = new Graphics();
         
-        // Рисуем шестиугольник с поворотом
+        // Рисуем многоугольник с поворотом (из конфига)
         const vertices = [];
-        for (let j = 0; j < 6; j++) {
-            const angle = (j * Math.PI) / 3 + rotationOffset; // 60 градусов между вершинами + поворот
-            const vx = x + Math.cos(angle) * smallHexRadius;
-            const vy = y + Math.sin(angle) * smallHexRadius;
+        const sides = CONFIG.cookie.pieces.polygonSides;
+        const enlargedRadius = smallHexRadius * CONFIG.cookie.pieces.sizeMultiplier;
+        for (let j = 0; j < sides; j++) {
+            const angle = (j * 2 * Math.PI) / sides + rotationOffset;
+            const vx = x + Math.cos(angle) * enlargedRadius;
+            const vy = y + Math.sin(angle) * enlargedRadius;
             vertices.push(vx, vy);
         }
         
@@ -815,14 +827,14 @@ function generateSmallHexagons(app, cookieSprite) {
         textureSprite.x = cookieSprite.x;
         textureSprite.y = cookieSprite.y;
         
-        // Создаем маску шестиугольника в локальных координатах
+        // Создаем маску многоугольника в локальных координатах
         const mask = new Graphics();
-        // Создаем вершины относительно позиции шестиугольника
+        // Создаем вершины относительно позиции многоугольника
         const localVertices = [];
-        for (let j = 0; j < 6; j++) {
-            const angle = (j * Math.PI) / 3 + rotationOffset;
-            const vx = Math.cos(angle) * smallHexRadius;
-            const vy = Math.sin(angle) * smallHexRadius;
+        for (let j = 0; j < sides; j++) {
+            const angle = (j * 2 * Math.PI) / sides + rotationOffset;
+            const vx = Math.cos(angle) * enlargedRadius;
+            const vy = Math.sin(angle) * enlargedRadius;
             localVertices.push(vx, vy);
         }
         mask.poly(localVertices);
@@ -851,9 +863,8 @@ function generateSmallHexagons(app, cookieSprite) {
         
         // Убираем обводку - оставляем только текстуру
         
-        // Делаем интерактивным
+        // Делаем интерактивным (без изменения курсора)
         hexContainer.eventMode = 'static';
-        hexContainer.cursor = 'pointer';
         
         // Добавляем обработчик клика для анимации падения
         hexContainer.on('pointerdown', () => {
@@ -930,7 +941,12 @@ function generateSmallHexagons(app, cookieSprite) {
             // Цвет в зависимости от того, полностью ли шестиугольник внутри печенья
             const color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
             
-            const hex = createHexagon(x, y, hexId++, color, rotationOffset);
+            // Поворот для каждого многоугольника (случайный или фиксированный)
+            const rotation = CONFIG.cookie.pieces.randomRotation ? 
+                Math.random() * 2 * Math.PI : 
+                rotationOffset;
+            
+            const hex = createHexagon(x, y, hexId++, color, rotation);
             hexagons.push(hex);
             
             if (isDev) {
@@ -991,7 +1007,8 @@ function updateCookieSize() {
         window.centerShape = newCenterShape;
     }
     
-    // Обновляем большой шестиугольник
+    // Большой шестиугольник скрыт, не обновляем
+    /*
     const bigHexagon = window.bigHexagon;
     if (bigHexagon) {
         // Удаляем старый шестиугольник
@@ -1003,6 +1020,7 @@ function updateCookieSize() {
         // Обновляем ссылку
         window.bigHexagon = newHexagon;
     }
+    */
     
     // Обновляем маленькие шестиугольники
     const smallHexagons = window.smallHexagons;
@@ -1059,21 +1077,10 @@ function isPointInHexagon(pointX, pointY, hexagon) {
     const absX = Math.abs(rotatedX);
     const absY = Math.abs(rotatedY);
     
-    // Радиус описанной окружности равен радиусу шестиугольника
-    const hexRadius = radius;
-    const hexHeight = hexRadius * Math.sqrt(3) / 2; // Высота от центра до грани
-    
-    // Три условия для правильного шестиугольника:
-    // 1. Расстояние по Y не превышает высоту шестиугольника
-    if (absY > hexHeight) return false;
-    
-    // 2. Расстояние по X не превышает радиус
-    if (absX > hexRadius) return false;
-    
-    // 3. Проверка диагональных граней
-    if (absX + absY * Math.sqrt(3) > hexRadius * 2) return false;
-    
-    return true;
+    // Простая проверка попадания в окружность для многоугольника (с учетом размера из конфига)
+    const enlargedRadius = radius * CONFIG.cookie.pieces.sizeMultiplier;
+    const distance = Math.sqrt(absX * absX + absY * absY);
+    return distance <= enlargedRadius;
 }
 
 // Поиск шестиугольника под точкой
@@ -1125,10 +1132,27 @@ function paintHexagon(hexagon, color = 0xFF0000) {
 }
 
 // Обработка нажатия иглы на шестиугольники
-function handleNeedlePaintingAtPoint(x, y) {
+function handleNeedlePaintingAtPoint() {
     if (!needlePressed) return false;
     
-    const hexagon = findHexagonAtPoint(x, y);
+    // Получаем позицию острия иглы (левый нижний угол)
+    const needleSprite = window.needle;
+    if (!needleSprite) return false;
+    
+    // Рассчитываем позицию кончика иглы с учетом текущего якоря
+    let needleTipX, needleTipY;
+    
+    if (needleSprite.anchor.x === 0 && needleSprite.anchor.y === 1) {
+        // Якорь в левом нижнем углу (мышь) - позиция спрайта уже кончик иглы
+        needleTipX = needleSprite.x;
+        needleTipY = needleSprite.y;
+    } else {
+        // Якорь в центре (касание) - нужно сместиться к левому нижнему углу
+        needleTipX = needleSprite.x - needleSprite.width / 2;
+        needleTipY = needleSprite.y + needleSprite.height / 2;
+    }
+    
+    const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
     if (hexagon && !hexagon.isPainted) {
         // Запускаем анимацию падения вместо закраски
         if (hexagon.container) {
@@ -1496,8 +1520,9 @@ function createNeedle(app) {
         
         needleBaseY = needleSprite.y;
     } else {
-        needleSprite.visible = CONFIG.needle.visible;
-        needleShadowSprite.visible = CONFIG.needle.visible;
+        // Для десктопа не инициализируем позицию - игла появится где мышь
+        needleSprite.visible = false; // Скрыта до первого mouseenter
+        needleShadowSprite.visible = false;
     }
     
     // Добавляем на сцену (сначала тень, потом иглу)
@@ -1575,14 +1600,20 @@ function setupDesktopInteractivity(gameArea) {
         
         updateNeedlePosition(x, y, 'mouse');
         
-        // Если мышь зажата и перемещается - окрашиваем шестиугольники
+        // Если мышь зажата и перемещается - воздействуем острием иглы
         if (isDragging && needlePressed) {
-            handleNeedlePaintingAtPoint(x, y);
+            handleNeedlePaintingAtPoint();
         }
     });
     
     // Обработка входа мыши в область
-    gameArea.addEventListener('mouseenter', () => {
+    gameArea.addEventListener('mouseenter', (event) => {
+        const rect = gameArea.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        
+        // Сразу устанавливаем иглу в позицию мыши
+        updateNeedlePosition(mouseX, mouseY, 'mouse');
         showNeedle();
     });
     
@@ -1599,11 +1630,12 @@ function setupDesktopInteractivity(gameArea) {
         isDragging = true;
         animateNeedlePress(true);
         
-        // Сразу окрашиваем шестиугольник под иглой
         const rect = gameArea.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
-        handleNeedlePaintingAtPoint(x, y);
+        
+        // Сразу воздействуем острием иглы
+        handleNeedlePaintingAtPoint();
     });
     
     gameArea.addEventListener('mouseup', () => {
@@ -1617,54 +1649,61 @@ function setupMobileInteractivity(gameArea) {
     console.log('🔧 Настраиваем мобильную интерактивность');
     showTouchDebug('SETUP MOBILE');
     
-    // Добавляем обработчики на разные элементы для надежности
-    const canvas = document.getElementById('game-canvas');
-    const elements = [gameArea, canvas, document.body, window];
+    // Новая логика: игла следует за пальцем как на десктопе
+    let isTouching = false;
     
-    elements.forEach((element, index) => {
-        // Обработка касаний
-        element.addEventListener('touchstart', (event) => {
-            showTouchDebug(`TOUCH START ${index}`);
-            
-            // Только для gameArea выполняем анимацию
-            if (element === gameArea) {
-                event.preventDefault();
-                const touch = event.touches[0];
-                const rect = gameArea.getBoundingClientRect();
-                const x = touch.clientX - rect.left;
-                const y = touch.clientY - rect.top;
-                
-                showTouchDebug(`TOUCH: ${x.toFixed(0)}, ${y.toFixed(0)}`);
-                
-                // Сначала анимируем перемещение иглы к точке касания
-                animateNeedleToTouch(x, y);
-                
-                // Затем запускаем анимацию нажатия через время перемещения
-                setTimeout(() => {
-                    animateNeedlePress(true);
-                }, CONFIG.needle.mobile.animationDuration * 1000);
-            }
-        }, { passive: false });
+    // Обработка начала касания
+    gameArea.addEventListener('touchstart', (event) => {
+        event.preventDefault();
+        isTouching = true;
+        isDragging = true;
         
-        element.addEventListener('touchend', (event) => {
-            showTouchDebug(`TOUCH END ${index}`);
-            
-            // Только для gameArea выполняем анимацию
-            if (element === gameArea) {
-                // Отпускаем иглу
-                animateNeedlePress(false);
-                
-                // Возвращаем иглу в исходную позицию
-                setTimeout(() => {
-                    const gameWidth = gameArea.clientWidth;
-                    const gameHeight = gameArea.clientHeight;
-                    const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-                    const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-                    animateNeedleToTouch(staticX, staticY);
-                }, 200);
-            }
-        }, { passive: false });
-    });
+        const touch = event.touches[0];
+        const rect = gameArea.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        showTouchDebug(`TOUCH START: ${x.toFixed(0)}, ${y.toFixed(0)}`);
+        
+        // Сразу устанавливаем иглу в позицию касания и показываем
+        updateNeedlePosition(x, y, 'touch');
+        showNeedle();
+        animateNeedlePress(true);
+        
+        // Сразу воздействуем острием иглы
+        handleNeedlePaintingAtPoint();
+    }, { passive: false });
+    
+    // Добавляем обработчик touchmove для отслеживания движения пальца
+    gameArea.addEventListener('touchmove', (event) => {
+        if (!isTouching) return;
+        
+        event.preventDefault();
+        const touch = event.touches[0];
+        const rect = gameArea.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        // Перемещаем иглу следом за пальцем
+        updateNeedlePosition(x, y, 'touch');
+        
+        // Воздействуем острием иглы при перемещении
+        if (needlePressed) {
+            handleNeedlePaintingAtPoint();
+        }
+    }, { passive: false });
+    
+    // Обработка окончания касания
+    gameArea.addEventListener('touchend', (event) => {
+        isTouching = false;
+        isDragging = false;
+        
+        showTouchDebug('TOUCH END');
+        
+        // Отпускаем иглу и скрываем
+        animateNeedlePress(false);
+        hideNeedle();
+    }, { passive: false });
     
     // Добавляем pointer events как fallback
     gameArea.addEventListener('pointerdown', (event) => {
@@ -1973,8 +2012,16 @@ function animateNeedleToTouch(targetX, targetY) {
     needleSprite.moveAnimation = requestAnimationFrame(animate);
 }
 
+// Функция анимации убрана - игла появляется сразу где мышь
+
 // Анимация падения шестиугольника
 function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
+    // Проверяем что контейнер существует
+    if (!hexContainer) {
+        console.warn('❌ Контейнер шестиугольника не найден');
+        return;
+    }
+    
     const config = CONFIG.cookie.pieces.chipAnimation;
     
     // Начальные параметры - используем реальные координаты
@@ -1996,7 +2043,7 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
     const gameArea = document.querySelector('.game-area');
     const screenHeight = gameArea.clientHeight;
     
-    console.log(`🔽 Шестиугольник начал падение с позиции (${startX.toFixed(1)}, ${startY.toFixed(1)})`);
+    // Убираем логирование для производительности
     
     function animate() {
         // Проверяем что контейнер еще существует
@@ -2016,11 +2063,7 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
         hexContainer.x = startX; // Фиксируем X координату
         hexContainer.y = currentY;
         
-        // Логируем координаты каждую секунду
-        if (now - lastLogTime >= 1000) {
-            console.log(`📍 Позиция шестиугольника: (${hexContainer.x.toFixed(1)}, ${hexContainer.y.toFixed(1)}) прогресс: ${(progress * 100).toFixed(1)}%`);
-            lastLogTime = now;
-        }
+        // Убираем логирование для производительности
         
         // Эффекты масштабирования и исчезновения
         if (config.fadeOut && hexContainer) {
