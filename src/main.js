@@ -3161,15 +3161,37 @@ function createShapeButtons() {
         top: 20px;
         left: 20px;
         display: flex;
+        flex-direction: column;
         gap: 10px;
         z-index: 1000;
         background: rgba(0, 0, 0, 0.8);
-        padding: 10px;
+        padding: 15px;
         border-radius: 10px;
         backdrop-filter: blur(5px);
+        min-width: 200px;
     `;
     
-    // Данные для кнопок
+    // Создаем заголовок для форм
+    const shapeLabel = document.createElement('div');
+    shapeLabel.textContent = 'Shape';
+    shapeLabel.style.cssText = `
+        color: #fff;
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 5px;
+    `;
+    container.appendChild(shapeLabel);
+    
+    // Контейнер для кнопок форм
+    const shapesContainer = document.createElement('div');
+    shapesContainer.style.cssText = `
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+    `;
+    
+    // Данные для кнопок форм
     const shapes = [
         { id: 1, name: 'Circle', symbol: '●', color: '#4CAF50' },
         { id: 2, name: 'Square', symbol: '■', color: '#2196F3' },
@@ -3210,13 +3232,144 @@ function createShapeButtons() {
         });
         
         // Обработчик смены формы
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             changeShape(shape.id);
             updateShapeButtons(); // Обновляем активную кнопку
         });
         
-        container.appendChild(button);
+        // Дополнительная защита для мобильных
+        button.addEventListener('touchend', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            changeShape(shape.id);
+            updateShapeButtons();
+        });
+        
+        shapesContainer.appendChild(button);
     });
+    
+    container.appendChild(shapesContainer);
+    
+    // Создаем заголовок для hexGrid
+    const hexLabel = document.createElement('div');
+    hexLabel.textContent = 'Pieces Count';
+    hexLabel.style.cssText = `
+        color: #fff;
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+        margin-top: 10px;
+        margin-bottom: 5px;
+    `;
+    container.appendChild(hexLabel);
+    
+    // Контейнер для контроля hexGrid
+    const hexContainer = document.createElement('div');
+    hexContainer.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: center;
+    `;
+    
+    // Кнопка уменьшения
+    const decreaseBtn = document.createElement('button');
+    decreaseBtn.textContent = '−';
+    decreaseBtn.title = 'Decrease pieces';
+    decreaseBtn.style.cssText = `
+        width: 35px;
+        height: 35px;
+        border: 2px solid #666;
+        background: rgba(255, 255, 255, 0.1);
+        color: #ccc;
+        border-radius: 6px;
+        font-size: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    // Отображение текущего значения
+    const hexValue = document.createElement('span');
+    hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+    hexValue.style.cssText = `
+        color: #fff;
+        font-size: 14px;
+        font-weight: bold;
+        min-width: 30px;
+        text-align: center;
+    `;
+    
+    // Кнопка увеличения
+    const increaseBtn = document.createElement('button');
+    increaseBtn.textContent = '+';
+    increaseBtn.title = 'Increase pieces';
+    increaseBtn.style.cssText = `
+        width: 35px;
+        height: 35px;
+        border: 2px solid #666;
+        background: rgba(255, 255, 255, 0.1);
+        color: #ccc;
+        border-radius: 6px;
+        font-size: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    // Обработчики для hexGrid кнопок
+    decreaseBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeHexGrid(CONFIG.cookie.pieces.hexGrid - 5);
+        hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+    });
+    
+    increaseBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeHexGrid(CONFIG.cookie.pieces.hexGrid + 5);
+        hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+    });
+    
+    // Дополнительная защита для мобильных
+    decreaseBtn.addEventListener('touchend', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeHexGrid(CONFIG.cookie.pieces.hexGrid - 5);
+        hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+    });
+    
+    increaseBtn.addEventListener('touchend', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeHexGrid(CONFIG.cookie.pieces.hexGrid + 5);
+        hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+    });
+    
+    // Hover эффекты для hexGrid кнопок
+    [decreaseBtn, increaseBtn].forEach(btn => {
+        btn.addEventListener('mouseenter', () => {
+            btn.style.transform = 'scale(1.1)';
+            btn.style.background = 'rgba(255, 255, 255, 0.2)';
+        });
+        
+        btn.addEventListener('mouseleave', () => {
+            btn.style.transform = 'scale(1)';
+            btn.style.background = 'rgba(255, 255, 255, 0.1)';
+        });
+    });
+    
+    hexContainer.appendChild(decreaseBtn);
+    hexContainer.appendChild(hexValue);
+    hexContainer.appendChild(increaseBtn);
+    container.appendChild(hexContainer);
     
     document.body.appendChild(container);
     
@@ -3237,6 +3390,25 @@ function changeShape(newShapeId) {
     }
     
     // Перезагружаем игру с новой формой
+    restartGame();
+}
+
+// Функция смены количества кусочков (hexGrid)
+function changeHexGrid(newHexGrid) {
+    // Ограничиваем значения
+    const minHex = 15;
+    const maxHex = 65;
+    const clampedValue = Math.max(minHex, Math.min(maxHex, newHexGrid));
+    
+    if (CONFIG.cookie.pieces.hexGrid === clampedValue) return; // Уже установлено
+    
+    CONFIG.cookie.pieces.hexGrid = clampedValue;
+    
+    if (isDev) {
+        console.log(`🔄 Количество кусочков изменено на: ${clampedValue}`);
+    }
+    
+    // Перезагружаем игру с новым количеством кусочков
     restartGame();
 }
 
