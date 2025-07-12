@@ -784,6 +784,35 @@ function drawBigHexagon(app, cookieSprite) {
 }
 
 
+// Фильтрация синих кусочков - удаляем те, что не граничат с обычными
+function filterEdgePiecesWithRegularNeighbors(hexagons, app) {
+    const edgePieces = hexagons.filter(hex => hex.isEdgePiece);
+    const regularPieces = hexagons.filter(hex => !hex.isEdgePiece && !hex.isInCenterShape);
+    const toRemove = [];
+    
+    for (const edgeHex of edgePieces) {
+        // Проверяем, есть ли у крайнего кусочка соседи среди обычных кусочков
+        const neighbors = findHexagonNeighbors(edgeHex, regularPieces);
+        
+        if (neighbors.length === 0) {
+            // Нет соседей среди обычных кусочков - удаляем
+            toRemove.push(edgeHex);
+            
+            // Удаляем визуальный элемент со сцены
+            if (edgeHex.container && edgeHex.container.parent) {
+                edgeHex.container.parent.removeChild(edgeHex.container);
+                edgeHex.container.destroy();
+            }
+        }
+    }
+    
+    // Возвращаем отфильтрованный массив
+    const filtered = hexagons.filter(hex => !toRemove.includes(hex));
+    
+    
+    return filtered;
+}
+
 // Генерация гексагональной сетки внутри окружности печенья
 function generateSmallHexagons(app, cookieSprite) {
     const config = CONFIG.cookie.pieces;
@@ -1017,11 +1046,14 @@ function generateSmallHexagons(app, cookieSprite) {
         }
     }
     
+    // Удаляем синие кусочки, которые не граничат с обычными
+    const filteredHexagons = filterEdgePiecesWithRegularNeighbors(hexagons, app);
+    
     if (isDev) {
-        console.log(`✅ Создано ${hexagons.length} маленьких шестиугольников между противоположными углами`);
+        console.log(`✅ Создано ${filteredHexagons.length} маленьких шестиугольников между противоположными углами`);
     }
     
-    return hexagons;
+    return filteredHexagons;
 }
 
 
@@ -1181,6 +1213,7 @@ function findHexagonNeighbors(targetHexagon, allHexagons) {
     return neighbors;
 }
 
+
 // Алгоритм поиска связанных компонентов (BFS)
 function findConnectedComponents(clickedHexagon, allHexagons) {
     const visited = new Set();
@@ -1324,9 +1357,6 @@ function handleNeedlePaintingAtPoint() {
     const needleTipX = currentClickPoint.x;
     const needleTipY = currentClickPoint.y;
     
-    if (isDev) {
-        console.log(`🎯 Проверяем попадание в точке (${needleTipX.toFixed(1)}, ${needleTipY.toFixed(1)})`);
-    }
     
     const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
     if (hexagon && !hexagon.isPainted) {
@@ -1358,21 +1388,14 @@ function handleNeedlePaintingAtPoint() {
                 animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
             }
             
-            // Запускаем анимацию падения для всех отколовшихся кусочков с небольшой задержкой
-            disconnectedHexagons.forEach((disconnectedHex, index) => {
+            // Запускаем анимацию падения для всех отколовшихся кусочков мгновенно
+            disconnectedHexagons.forEach((disconnectedHex) => {
                 if (disconnectedHex.container && !disconnectedHex.isPainted) {
-                    // Добавляем случайную задержку для более реалистичного эффекта
-                    const delay = 100 + (index * 50) + (Math.random() * 100);
-                    setTimeout(() => {
-                        disconnectedHex.isPainted = true;
-                        animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
-                    }, delay);
+                    disconnectedHex.isPainted = true;
+                    animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
                 }
             });
             
-            if (isDev && disconnectedHexagons.length > 0) {
-                console.log(`🔴 Откололось ${disconnectedHexagons.length + 1} кусочков (${disconnectedHexagons.length} из-за потери связи с центром)`);
-            }
         }, needleAnimationDuration);
         
         return true;
@@ -1595,60 +1618,69 @@ function createProgrammaticNeedleShadow() {
     }
 }
 
-// Функция расчета позиции иглы относительно точки клика
-function calculateNeedlePosition(clickX, clickY, pressed = false) {
+// Функция вычисления точки касания кусочков из координат пальца/мыши
+function calculateContactPoint(inputX, inputY) {
+    if (isMobile) {
+        // На мобильных смещаем точку касания вниз-влево от пальца
+        const needleSprite = window.needle;
+        if (needleSprite) {
+            return {
+                x: inputX - needleSprite.width / 2,
+                y: inputY + needleSprite.height / 2
+            };
+        }
+    }
+    
+    // На десктопе мышь = точка касания
+    return { x: inputX, y: inputY };
+}
+
+// Функция расчета позиции иглы относительно точки касания
+function calculateNeedlePosition(contactX, contactY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
     if (pressed) {
-        // При нажатии игла приближается к точке клика
-        return {
-            x: clickX,
-            y: clickY // Игла точно в точке клика
-        };
+        // При нажатии игла сходится к точке касания
+        return { x: contactX, y: contactY };
     } else {
-        // Обычное положение - игла смещена только по Y
-        return {
-            x: clickX,
-            y: clickY - distance // Игла выше точки клика
-        };
+        // В обычном состоянии игла выше точки касания
+        return { x: contactX, y: contactY - distance };
     }
 }
 
-// Функция расчета позиции тени относительно точки клика
-function calculateShadowPosition(clickX, clickY, pressed = false) {
+// Функция расчета позиции тени относительно точки касания
+function calculateShadowPosition(contactX, contactY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
     if (pressed) {
-        // При нажатии тень приближается к точке клика
-        return {
-            x: clickX,
-            y: clickY // Тень точно в точке клика
-        };
+        // При нажатии тень сходится к точке касания
+        return { x: contactX, y: contactY };
     } else {
-        // Обычное положение - тень смещена по X и Y
-        return {
-            x: clickX + distance, // Тень правее точки клика
-            y: clickY - distance  // Тень выше точки клика
-        };
+        // В обычном состоянии тень ниже точки касания
+        return { x: contactX, y: contactY + distance };
     }
 }
 
-// Функция обновления позиций иглы и тени относительно точки клика
-function updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, clickX, clickY, pressed = false) {
+
+// Функция обновления позиций иглы и тени относительно точки ввода
+function updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, inputX, inputY, pressed = false) {
     if (!needleSprite) return;
     
-    // Сохраняем текущую точку клика
-    currentClickPoint.x = clickX;
-    currentClickPoint.y = clickY;
+    // Вычисляем точку касания кусочков из координат ввода
+    const contactPoint = calculateContactPoint(inputX, inputY);
     
-    // Обновляем позицию иглы
-    const needlePos = calculateNeedlePosition(clickX, clickY, pressed);
+    // Сохраняем точку касания как текущую точку клика
+    currentClickPoint.x = contactPoint.x;
+    currentClickPoint.y = contactPoint.y;
+    
+    // Обновляем позицию иглы относительно точки касания
+    const needlePos = calculateNeedlePosition(contactPoint.x, contactPoint.y, pressed);
     needleSprite.x = needlePos.x;
     needleSprite.y = needlePos.y;
     
-    // Обновляем позицию тени
+    // Обновляем позицию тени относительно точки касания
     if (needleShadowSprite) {
-        const shadowPos = calculateShadowPosition(clickX, clickY, pressed);
+        const shadowPos = calculateShadowPosition(contactPoint.x, contactPoint.y, pressed);
         needleShadowSprite.x = shadowPos.x;
         needleShadowSprite.y = shadowPos.y;
     }
@@ -1668,8 +1700,8 @@ function createDebugPoint() {
     return graphics;
 }
 
-// Функция показа точки позиционирования
-function showDebugPoint(x, y) {
+// Функция показа точки касания кусочков (красная точка)
+function showDebugPoint(inputX, inputY) {
     if (!isDev) return; // Только в режиме разработки
     
     let debugPoint = window.debugPoint;
@@ -1679,8 +1711,11 @@ function showDebugPoint(x, y) {
         window.debugPoint = debugPoint;
     }
     
-    debugPoint.x = x;
-    debugPoint.y = y;
+    // Вычисляем точку касания кусочков
+    const contactPoint = calculateContactPoint(inputX, inputY);
+    
+    debugPoint.x = contactPoint.x;
+    debugPoint.y = contactPoint.y;
     debugPoint.visible = true;
     
     // Автоматически скрыть через 2 секунды
@@ -1864,7 +1899,6 @@ function setupMobileInteractivity(gameArea) {
     console.log('🔧 Настраиваем мобильную интерактивность');
     showTouchDebug('SETUP MOBILE');
     
-    // Новая логика: игла следует за пальцем как на десктопе
     let isTouching = false;
     
     // Обработка начала касания
@@ -1880,16 +1914,16 @@ function setupMobileInteractivity(gameArea) {
         
         showTouchDebug(`TOUCH START: ${x.toFixed(0)}, ${y.toFixed(0)}`);
         
-        // Сразу устанавливаем иглу в позицию касания и показываем
+        // Обновляем позицию иглы и показываем
         updateNeedlePosition(x, y, 'touch');
         showNeedle();
         animateNeedlePress(true);
         
-        // Сразу воздействуем острием иглы
+        // Воздействуем острием иглы
         handleNeedlePaintingAtPoint();
     }, { passive: false });
     
-    // Добавляем обработчик touchmove для отслеживания движения пальца
+    // Обработка движения пальца
     gameArea.addEventListener('touchmove', (event) => {
         if (!isTouching) return;
         
@@ -1919,103 +1953,6 @@ function setupMobileInteractivity(gameArea) {
         animateNeedlePress(false);
         hideNeedle();
     }, { passive: false });
-    
-    // Добавляем pointer events как fallback
-    gameArea.addEventListener('pointerdown', (event) => {
-        showTouchDebug('POINTER DOWN');
-        
-        if (event.pointerType === 'touch') {
-            const rect = gameArea.getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const y = event.clientY - rect.top;
-            
-            // Сначала перемещаем иглу к точке касания
-            animateNeedleToTouch(x, y);
-            
-            // Затем имитируем нажатие через время перемещения
-            setTimeout(() => {
-                animateNeedlePress(true);
-            }, CONFIG.needle.mobile.animationDuration * 1000);
-        }
-    });
-    
-    gameArea.addEventListener('pointerup', (event) => {
-        showTouchDebug('POINTER UP');
-        
-        if (event.pointerType === 'touch') {
-            animateNeedlePress(false);
-            
-            setTimeout(() => {
-                const gameWidth = gameArea.clientWidth;
-                const gameHeight = gameArea.clientHeight;
-                const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-                const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-                animateNeedleToTouch(staticX, staticY);
-            }, 200);
-        }
-    });
-    
-    // Добавляем обработчики click как еще один fallback
-    gameArea.addEventListener('click', (event) => {
-        showTouchDebug('CLICK EVENT');
-        
-        const rect = gameArea.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
-        // Сначала перемещаем иглу к точке касания
-        animateNeedleToTouch(x, y);
-        
-        // Затем имитируем нажатие через время перемещения
-        setTimeout(() => {
-            animateNeedlePress(true);
-            
-            // Автоматически отпускаем через короткое время
-            setTimeout(() => {
-                animateNeedlePress(false);
-                
-                // Возвращаем иглу в исходную позицию
-                setTimeout(() => {
-                    const gameWidth = gameArea.clientWidth;
-                    const gameHeight = gameArea.clientHeight;
-                    const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-                    const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-                    animateNeedleToTouch(staticX, staticY);
-                }, 200);
-            }, 300);
-        }, CONFIG.needle.mobile.animationDuration * 1000); // Ждем окончания перемещения
-    });
-    
-    // Добавляем обработчики mousedown/mouseup для мобильных как fallback
-    gameArea.addEventListener('mousedown', (event) => {
-        showTouchDebug('MOUSEDOWN EVENT');
-        
-        const rect = gameArea.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
-        // Сначала перемещаем иглу к точке касания
-        animateNeedleToTouch(x, y);
-        
-        // Затем имитируем нажатие через время перемещения
-        setTimeout(() => {
-            animateNeedlePress(true);
-        }, CONFIG.needle.mobile.animationDuration * 1000);
-    });
-    
-    gameArea.addEventListener('mouseup', (event) => {
-        showTouchDebug('MOUSEUP EVENT');
-        
-        animateNeedlePress(false);
-        
-        setTimeout(() => {
-            const gameWidth = gameArea.clientWidth;
-            const gameHeight = gameArea.clientHeight;
-            const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-            const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-            animateNeedleToTouch(staticX, staticY);
-        }, 200);
-    });
 }
 
 // Показать иглу
@@ -2212,9 +2149,16 @@ function animateNeedleToTouch(targetX, targetY) {
             needleShadowSprite.y = shadowStartPos.y + (shadowTargetPos.y - shadowStartPos.y) * easeProgress;
         }
         
-        // Обновляем текущую точку клика и базовую позицию Y
-        currentClickPoint.x = targetX;
-        currentClickPoint.y = targetY;
+        // Обновляем текущую точку клика и базовую позицию Y с учетом мобильного смещения
+        if (isMobile) {
+            // На мобильных смещаем в левый нижний угол иглы (острие)
+            currentClickPoint.x = targetX - needleSprite.width / 2;
+            currentClickPoint.y = targetY + needleSprite.height / 2;
+        } else {
+            // На десктопе оставляем как есть
+            currentClickPoint.x = targetX;
+            currentClickPoint.y = targetY;
+        }
         needleBaseY = needleSprite.y;
         
         if (progress < 1) {
