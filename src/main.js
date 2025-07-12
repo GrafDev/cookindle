@@ -1491,7 +1491,12 @@ function updateNeedleSize() {
     // Обновляем масштаб иглы
     const needleTexture = needleSprite.texture;
     const scale = needleSize / Math.max(needleTexture.width, needleTexture.height);
-    needleSprite.scale.set(scale);
+    if (isMobile) {
+        // На мобильных сохраняем отзеркаливание по Y
+        needleSprite.scale.set(scale, -scale);
+    } else {
+        needleSprite.scale.set(scale);
+    }
     
     // Обновляем масштаб тени
     if (needleShadowSprite) {
@@ -1689,12 +1694,12 @@ function createProgrammaticNeedleShadow() {
 // Функция вычисления точки касания кусочков из координат пальца/мыши
 function calculateContactPoint(inputX, inputY) {
     if (isMobile) {
-        // На мобильных смещаем точку касания вниз-влево от пальца
+        // На мобильных для отзеркаленной иглы: красная точка вверху слева
         const needleSprite = window.needle;
         if (needleSprite) {
             return {
                 x: inputX - needleSprite.width / 2,
-                y: inputY + needleSprite.height / 2
+                y: inputY - needleSprite.height / 2
             };
         }
     }
@@ -1833,9 +1838,12 @@ function createNeedle(app) {
     // Устанавливаем начальную позицию для мобильных устройств
     if (isMobile) {
         needleSprite.visible = true;
-        needleShadowSprite.visible = true;
+        needleShadowSprite.visible = false; // На мобильных тень скрыта сразу
         needleSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y); // Левый нижний угол
         needleShadowSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y);
+        
+        // Отзеркаливаем иглу для мобильных устройств (меняем знак у scale.y)
+        needleSprite.scale.y = -needleSprite.scale.y;
         
         const startX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
         const startY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
@@ -2084,13 +2092,20 @@ function updateNeedlePosition(x, y, inputType, pressed = false) {
     // Устанавливаем якоря в зависимости от типа ввода
     if (inputType === 'mouse') {
         needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+        // На десктопе возвращаем нормальный масштаб и показываем тень
+        if (isMobile) {
+            // Если переключились с touch на mouse (гибридное устройство), возвращаем масштаб
+            needleSprite.scale.y = Math.abs(needleSprite.scale.y);
+        }
         if (needleShadowSprite) {
             needleShadowSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+            needleShadowSprite.visible = true;
         }
     } else if (inputType === 'touch') {
         needleSprite.anchor.set(needleConfig.touchOffset.x, needleConfig.touchOffset.y);
+        // На мобильных тень уже скрыта при создании
         if (needleShadowSprite) {
-            needleShadowSprite.anchor.set(needleConfig.touchOffset.x, needleConfig.touchOffset.y);
+            needleShadowSprite.visible = false;
         }
     }
     
