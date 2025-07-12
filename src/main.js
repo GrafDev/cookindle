@@ -236,6 +236,11 @@ async function initGame(app) {
         // Настраиваем интерактивность
         setupInteractivity(app);
         
+        // Создаем кнопки смены формы (если включены в конфиге)
+        if (CONFIG.dev.showShapeButtons) {
+            createShapeButtons();
+        }
+        
         // Запускаем анимацию пульсации
         startPulseAnimation(app);
         
@@ -3138,6 +3143,123 @@ function restartGame() {
         console.error('Ошибка при перезапуске игры:', error);
         window.location.reload();
     }
+}
+
+// Создание кнопок смены формы (технические кнопки для тестирования)
+function createShapeButtons() {
+    // Удаляем существующие кнопки, если есть
+    const existingContainer = document.getElementById('shape-buttons-container');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    
+    // Создаем контейнер для кнопок
+    const container = document.createElement('div');
+    container.id = 'shape-buttons-container';
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        display: flex;
+        gap: 10px;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 10px;
+        border-radius: 10px;
+        backdrop-filter: blur(5px);
+    `;
+    
+    // Данные для кнопок
+    const shapes = [
+        { id: 1, name: 'Circle', symbol: '●', color: '#4CAF50' },
+        { id: 2, name: 'Square', symbol: '■', color: '#2196F3' },
+        { id: 3, name: 'Triangle', symbol: '▲', color: '#FF9800' }
+    ];
+    
+    shapes.forEach(shape => {
+        const button = document.createElement('button');
+        button.textContent = shape.symbol;
+        button.title = shape.name;
+        
+        const isActive = CONFIG.centerShape.form === shape.id;
+        
+        button.style.cssText = `
+            width: 50px;
+            height: 50px;
+            border: 2px solid ${isActive ? shape.color : '#666'};
+            background: ${isActive ? shape.color : 'rgba(255, 255, 255, 0.1)'};
+            color: ${isActive ? 'white' : '#ccc'};
+            border-radius: 8px;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+        
+        // Эффекты hover
+        button.addEventListener('mouseenter', () => {
+            button.style.transform = 'scale(1.1)';
+            button.style.boxShadow = `0 0 15px ${shape.color}`;
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = 'scale(1)';
+            button.style.boxShadow = 'none';
+        });
+        
+        // Обработчик смены формы
+        button.addEventListener('click', () => {
+            changeShape(shape.id);
+            updateShapeButtons(); // Обновляем активную кнопку
+        });
+        
+        container.appendChild(button);
+    });
+    
+    document.body.appendChild(container);
+    
+    if (isDev) {
+        console.log('🔘 Кнопки смены формы созданы');
+    }
+}
+
+// Функция смены формы центральной области
+function changeShape(newShapeId) {
+    if (CONFIG.centerShape.form === newShapeId) return; // Уже активна
+    
+    CONFIG.centerShape.form = newShapeId;
+    
+    if (isDev) {
+        const shapeNames = { 1: 'Circle', 2: 'Square', 3: 'Triangle' };
+        console.log(`🔄 Форма изменена на: ${shapeNames[newShapeId]}`);
+    }
+    
+    // Перезагружаем игру с новой формой
+    restartGame();
+}
+
+// Обновление активной кнопки
+function updateShapeButtons() {
+    const container = document.getElementById('shape-buttons-container');
+    if (!container) return;
+    
+    const buttons = container.querySelectorAll('button');
+    const shapes = [
+        { id: 1, color: '#4CAF50' },
+        { id: 2, color: '#2196F3' },
+        { id: 3, color: '#FF9800' }
+    ];
+    
+    buttons.forEach((button, index) => {
+        const shape = shapes[index];
+        const isActive = CONFIG.centerShape.form === shape.id;
+        
+        button.style.border = `2px solid ${isActive ? shape.color : '#666'}`;
+        button.style.background = isActive ? shape.color : 'rgba(255, 255, 255, 0.1)';
+        button.style.color = isActive ? 'white' : '#ccc';
+    });
 }
 
 // Запуск приложения

@@ -152,6 +152,8 @@ export const CONFIG = {
         // Принудительная отладка для мобильных (даже в продакшене)
         forceMobileDebug: false,
         // Показ цветных оверлеев (зеленый для краевых центральных, синий для краевых, розовый для центральных)
-        showColorOverlays: false
+        showColorOverlays: false,
+        // Показ кнопок смены формы (технические кнопки для тестирования)
+        showShapeButtons: true
     }
 };
