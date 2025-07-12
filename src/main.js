@@ -2780,24 +2780,42 @@ function animateFullCookieCrumble(callback) {
         return;
     }
     
-    // Запускаем падение всех кусочков с небольшим разнобоем
-    visibleHexagons.forEach((hex, index) => {
-        // Случайная задержка от 0 до 200мс для создания разнобоя
-        const randomDelay = Math.random() * 200;
+    // Разделяем кусочки на две группы
+    const centerHexagons = visibleHexagons.filter(hex => hex.isInCenterShape);
+    const outerHexagons = visibleHexagons.filter(hex => !hex.isInCenterShape);
+    
+    // ПЕРВАЯ ВОЛНА: кусочки внутри центральной фигуры
+    centerHexagons.forEach((hex, index) => {
+        // Небольшая случайная задержка для разнообразия (0-100мс)
+        const randomDelay = Math.random() * 100;
         
         setTimeout(() => {
             if (hex.container && hex.container.parent && !hex.isPainted) {
-                // Запускаем анимацию падения
                 animateHexagonFall(hex.container, hex.radius, hex.x, hex.y);
-                hex.isPainted = true; // Помечаем как обработанный
+                hex.isPainted = true;
             }
         }, randomDelay);
     });
     
-    // Вызываем callback через время, достаточное для анимации
+    // ВТОРАЯ ВОЛНА: остальные кусочки через 200мс
+    setTimeout(() => {
+        outerHexagons.forEach((hex, index) => {
+            // Небольшая случайная задержка для разнообразия (0-100мс)
+            const randomDelay = Math.random() * 100;
+            
+            setTimeout(() => {
+                if (hex.container && hex.container.parent && !hex.isPainted) {
+                    animateHexagonFall(hex.container, hex.radius, hex.x, hex.y);
+                    hex.isPainted = true;
+                }
+            }, randomDelay);
+        });
+    }, 200); // Задержка между волнами
+    
+    // Вызываем callback через время, достаточное для анимации обеих волн
     setTimeout(() => {
         if (callback) callback();
-    }, 1400); // Даем время на анимацию всех кусочков с учетом разнобоя
+    }, 1600); // 200мс задержка + 1400мс на анимацию
 }
 
 // Функция проверки победы (остались только кусочки центральной формы)
