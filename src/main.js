@@ -1313,14 +1313,18 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
             let shouldFall = false;
             
             // 1. Проверяем, есть ли среди соседей падающие ОБЫЧНЫЕ кусочки из отколовшихся компонентов
-            const neighbors = findHexagonNeighbors(edgeHex, nonCenterHexagons);
+            const neighbors = findHexagonNeighbors(edgeHex, allHexagons);
             const hasFallingRegularNeighbor = neighbors.some(neighbor => 
                 !neighbor.isEdgePiece && // Сосед должен быть обычным, не крайним
+                !neighbor.isInCenterShape && // И не из центральной формы
                 disconnectedComponents.some(component => component.includes(neighbor))
             );
             
             if (hasFallingRegularNeighbor) {
                 shouldFall = true;
+                if (isDev) {
+                    console.log(`🔵 Краевой кусочек (${edgeHex.x.toFixed(1)}, ${edgeHex.y.toFixed(1)}) падает из-за падающего соседа`);
+                }
             }
             
             // 2. Проверяем, является ли нажатый кусочек соседом и обычным (не крайним)
@@ -1328,11 +1332,17 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
                 const isNeighborOfClicked = neighbors.some(neighbor => neighbor.id === clickedHexagon.id);
                 if (isNeighborOfClicked) {
                     shouldFall = true;
+                    if (isDev) {
+                        console.log(`🔵 Краевой кусочек (${edgeHex.x.toFixed(1)}, ${edgeHex.y.toFixed(1)}) падает из-за нажатого соседа`);
+                    }
                 }
             }
             
             if (shouldFall) {
                 fallingEdgePieces.push(edgeHex);
+                if (isDev) {
+                    console.log(`🔵 Краевой кусочек (${edgeHex.x.toFixed(1)}, ${edgeHex.y.toFixed(1)}) будет падать`);
+                }
             }
         }
         
