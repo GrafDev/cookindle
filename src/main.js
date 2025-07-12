@@ -18,6 +18,7 @@ let isDragging = false; // Состояние перетаскивания
 
 // Глобальные переменные для игры
 let gameOverShown = false; // Флаг показа модалки Game Over
+let victoryShown = false; // Флаг показа модалки поздравления
 
 // Глобальные переменные для системы отколов
 let chipsContainer = null; // Контейнер для падающих осколков
@@ -816,6 +817,52 @@ function filterEdgePiecesWithRegularNeighbors(hexagons, app) {
     return filtered;
 }
 
+// Определение краевых кусочков центральной формы
+function markEdgeOfCenterShapePieces(hexagons) {
+    const centerPieces = hexagons.filter(hex => hex.isInCenterShape);
+    
+    for (const centerPiece of centerPieces) {
+        // Найдем всех соседей этого кусочка
+        const neighbors = findHexagonNeighbors(centerPiece, hexagons);
+        
+        // Проверим, есть ли среди соседей кусочки НЕ из центральной формы
+        const hasNonCenterNeighbor = neighbors.some(neighbor => !neighbor.isInCenterShape);
+        
+        if (hasNonCenterNeighbor) {
+            // Этот кусочек находится на краю центральной формы
+            centerPiece.isEdgeOfCenterShape = true;
+            
+            // Добавляем зеленый оверлей (только если включен показ цветных оверлеев)
+            if (centerPiece.container && CONFIG.dev.showColorOverlays) {
+                const sides = CONFIG.cookie.pieces.polygonSides;
+                const enlargedRadius = centerPiece.radius * CONFIG.cookie.pieces.sizeMultiplier;
+                
+                const greenOverlay = new Graphics();
+                // Создаем вершины зеленого оверлея
+                const overlayVertices = [];
+                for (let j = 0; j < sides; j++) {
+                    const angle = (j * 2 * Math.PI) / sides;
+                    const vx = Math.cos(angle) * enlargedRadius;
+                    const vy = Math.sin(angle) * enlargedRadius;
+                    overlayVertices.push(vx, vy);
+                }
+                greenOverlay.poly(overlayVertices);
+                greenOverlay.fill({ color: 0x00FF00, alpha: 0.3 }); // Прозрачный зеленый
+                greenOverlay.x = 0;
+                greenOverlay.y = 0;
+                
+                centerPiece.container.addChild(greenOverlay);
+            }
+            
+            if (isDev) {
+                console.log(`🟢 Кусочек (${centerPiece.x.toFixed(1)}, ${centerPiece.y.toFixed(1)}) помечен как краевой центральной формы`);
+            }
+        } else {
+            centerPiece.isEdgeOfCenterShape = false;
+        }
+    }
+}
+
 // Генерация гексагональной сетки внутри окружности печенья
 function generateSmallHexagons(app, cookieSprite) {
     const config = CONFIG.cookie.pieces;
@@ -907,8 +954,8 @@ function generateSmallHexagons(app, cookieSprite) {
         hexContainer.addChild(textureSprite);
         hexContainer.addChild(mask);
         
-        // Добавляем розовый оверлей для кусочков внутри центральной формы
-        if (isInCenterShape) {
+        // Добавляем розовый оверлей для кусочков внутри центральной формы (только если включен показ оверлеев)
+        if (isInCenterShape && CONFIG.dev.showColorOverlays) {
             const pinkOverlay = new Graphics();
             // Создаем вершины розового оверлея (как маска)
             const overlayVertices = [];
@@ -926,8 +973,8 @@ function generateSmallHexagons(app, cookieSprite) {
             hexContainer.addChild(pinkOverlay);
         }
         
-        // Добавляем синий оверлей для крайних кусочков
-        if (isEdgePiece) {
+        // Добавляем синий оверлей для крайних кусочков (только если включен показ оверлеев)
+        if (isEdgePiece && CONFIG.dev.showColorOverlays) {
             const blueOverlay = new Graphics();
             // Создаем вершины синего оверлея (как маска)
             const overlayVertices = [];
@@ -967,7 +1014,8 @@ function generateSmallHexagons(app, cookieSprite) {
             currentColor: color,
             isPainted: false,
             isInCenterShape: isInCenterShape, // Добавляем информацию о центральной форме
-            isEdgePiece: isEdgePiece // Добавляем информацию о крайних кусочках
+            isEdgePiece: isEdgePiece, // Добавляем информацию о крайних кусочках
+            isEdgeOfCenterShape: false // Будет установлено позже в markEdgeOfCenterShapePieces
         };
     }
     
@@ -1041,16 +1089,14 @@ function generateSmallHexagons(app, cookieSprite) {
             const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
             hexagons.push(hex);
             
-            if (isDev) {
-                const formNames = { 1: 'круг', 2: 'квадрат', 3: 'треугольник' };
-                const currentForm = formNames[CONFIG.centerShape.form] || 'неизвестно';
-                console.log(`🔸 Hex (${q}, ${r}, ${s}): позиция (${x.toFixed(1)}, ${y.toFixed(1)}), расстояние=${distanceFromCenter.toFixed(1)}, внутри=${isInsideCookie}, в центре=${isInCenterShape} (форма: ${currentForm})`);
-            }
         }
     }
     
     // Удаляем синие кусочки, которые не граничат с обычными
     const filteredHexagons = filterEdgePiecesWithRegularNeighbors(hexagons, app);
+    
+    // Определяем краевые кусочки центральной формы
+    markEdgeOfCenterShapePieces(filteredHexagons);
     
     if (isDev) {
         console.log(`✅ Создано ${filteredHexagons.length} маленьких шестиугольников между противоположными углами`);
@@ -1363,13 +1409,22 @@ function handleNeedlePaintingAtPoint() {
     
     const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
     if (hexagon && !hexagon.isPainted) {
-        // Проверяем, является ли кусочек центральным (внутри формы)
-        if (hexagon.isInCenterShape) {
+        // Проверяем, является ли кусочек центральным (внутри формы), но НЕ краевым
+        if (hexagon.isInCenterShape && !hexagon.isEdgeOfCenterShape) {
             // Сначала рассыпаем всю печеньку, потом показываем Game Over
             animateFullCookieCrumble(() => {
                 showGameOverModal();
             });
             return true;
+        }
+        
+        // Проверяем, является ли кусочек краевым центральной формы
+        if (hexagon.isEdgeOfCenterShape) {
+            // Краевые кусочки центральной формы не падают при нажатии
+            if (isDev) {
+                console.log(`🟢 Нажат краевой кусочек центральной формы - не падает`);
+            }
+            return false; // Ничего не делаем, кусочек остается на месте
         }
         
         // Получаем все шестиугольники для анализа связности
@@ -1398,6 +1453,13 @@ function handleNeedlePaintingAtPoint() {
                     animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
                 }
             });
+            
+            // Проверяем победу через время, достаточное для анимации падения
+            setTimeout(() => {
+                if (checkVictoryCondition()) {
+                    showCongratulationsModal();
+                }
+            }, CONFIG.cookie.pieces.chipAnimation.duration * 1000 + 500); // Даем время на анимацию + буфер
             
         }, needleAnimationDuration);
         
@@ -2709,6 +2771,152 @@ function animateFullCookieCrumble(callback) {
     setTimeout(() => {
         if (callback) callback();
     }, 1400); // Даем время на анимацию всех кусочков с учетом разнобоя
+}
+
+// Функция проверки победы (остались только кусочки центральной формы)
+function checkVictoryCondition() {
+    const allHexagons = window.smallHexagons;
+    if (!allHexagons) return false;
+    
+    // Находим все кусочки, которые НЕ относятся к центральной форме и НЕ обработаны (не упали)
+    const remainingNonCenterPieces = allHexagons.filter(hex => 
+        !hex.isInCenterShape && !hex.isPainted && !hex.isEdgePiece
+    );
+    
+    if (isDev) {
+        console.log(`🏆 Проверка победы: осталось ${remainingNonCenterPieces.length} обычных кусочков`);
+    }
+    
+    // Если не осталось обычных кусочков - победа!
+    return remainingNonCenterPieces.length === 0;
+}
+
+// Функция показа модального окна поздравления
+function showCongratulationsModal() {
+    // Проверяем, не показывалась ли уже модалка
+    if (victoryShown) return;
+    victoryShown = true;
+    // Получаем текстуру печеньки для фона
+    const cookieTexture = Assets.get('cookie');
+    const cookieDataUrl = cookieTexture ? cookieTexture.source.resource.src : '';
+    
+    // Создаем модальное окно
+    const modal = document.createElement('div');
+    modal.id = 'congratulations-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(10px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        animation: modalFadeIn 0.5s ease-out;
+    `;
+    
+    // Контейнер для модального окна
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background: linear-gradient(135deg, #4CAF50, #81C784);
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 8px rgba(76, 175, 80, 0.3);
+        max-width: 450px;
+        width: 90%;
+        animation: modalAppear 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        border: 4px solid #4CAF50;
+    `;
+    
+    // Заголовок Congratulations
+    const title = document.createElement('h1');
+    title.textContent = 'CONGRATULATIONS!';
+    title.style.cssText = `
+        color: #2E7D32;
+        font-size: 42px;
+        margin: 0 0 20px 0;
+        text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3);
+        font-weight: 900;
+        letter-spacing: 2px;
+    `;
+    
+    // Подзаголовок
+    const subtitle = document.createElement('p');
+    subtitle.textContent = 'You successfully cleared the cookie!';
+    subtitle.style.cssText = `
+        color: #1B5E20;
+        font-size: 18px;
+        margin: 0 0 30px 0;
+        font-weight: 600;
+    `;
+    
+    // Кнопка Play Again
+    const playAgainButton = document.createElement('button');
+    playAgainButton.textContent = 'Play Again';
+    playAgainButton.style.cssText = `
+        background: linear-gradient(45deg, #2E7D32, #4CAF50);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        font-size: 18px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+    `;
+    
+    // Эффекты для кнопки
+    playAgainButton.addEventListener('mouseenter', () => {
+        playAgainButton.style.transform = 'translateY(-2px)';
+        playAgainButton.style.boxShadow = '0 6px 20px rgba(76, 175, 80, 0.6)';
+    });
+    
+    playAgainButton.addEventListener('mouseleave', () => {
+        playAgainButton.style.transform = 'translateY(0)';
+        playAgainButton.style.boxShadow = '0 4px 15px rgba(76, 175, 80, 0.4)';
+    });
+    
+    playAgainButton.addEventListener('click', () => {
+        location.reload(); // Перезагружаем страницу для новой игры
+    });
+    
+    // Добавляем элементы
+    modalContent.appendChild(title);
+    modalContent.appendChild(subtitle);
+    modalContent.appendChild(playAgainButton);
+    modal.appendChild(modalContent);
+    
+    // Добавляем CSS анимации
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes modalAppear {
+            from {
+                opacity: 0;
+                transform: scale(0.5) translateY(-50px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // Показываем модальное окно
+    document.body.appendChild(modal);
+    
+    if (isDev) {
+        console.log('🏆 Показана модалка поздравления с победой!');
+    }
 }
 
 // Функция показа модального окна Game Over

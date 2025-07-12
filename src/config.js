@@ -55,7 +55,7 @@ export const CONFIG = {
     
     // Параметры центральной формы
     centerShape: {
-        form: 2, // 1 - круг, 2 - квадрат, 3 - треугольник
+        form: 1, // 1 - круг, 2 - квадрат, 3 - треугольник
         sizePercent: 0.6, // Размер формы в процентах от печенья
         color: 0xEB8D27, // Цвет обводки (оранжевый)
         lineWidth: 11, // Толщина линии
@@ -150,6 +150,8 @@ export const CONFIG = {
         showLabels: true,
         consoleLogging: true,
         // Принудительная отладка для мобильных (даже в продакшене)
-        forceMobileDebug: true
+        forceMobileDebug: true,
+        // Показ цветных оверлеев (зеленый для краевых центральных, синий для краевых, розовый для центральных)
+        showColorOverlays: true
     }
 };
