@@ -1931,7 +1931,7 @@ function setupMobileInteractivity(gameArea) {
         // Обновляем позицию иглы и показываем (нажатое состояние)
         updateNeedlePosition(x, y, 'touch', true);
         showNeedle();
-        animateNeedlePress(true);
+        needlePressed = true; // Устанавливаем состояние нажатия
         
         // Воздействуем острием иглы
         handleNeedlePaintingAtPoint();
@@ -1964,7 +1964,7 @@ function setupMobileInteractivity(gameArea) {
         showTouchDebug('TOUCH END');
         
         // Отпускаем иглу и скрываем
-        animateNeedlePress(false);
+        needlePressed = false; // Сбрасываем состояние нажатия
         hideNeedle();
     }, { passive: false });
 }
@@ -2074,12 +2074,28 @@ function animateNeedlePress(pressed) {
         }
     }
     
-    // Останавливаем предыдущую анимацию
+    // На мобильных устройствах просто обновляем позицию без анимации
+    if (isMobile) {
+        const needlePos = calculateNeedlePosition(currentClickPoint.x, currentClickPoint.y, pressed);
+        const shadowPos = calculateShadowPosition(currentClickPoint.x, currentClickPoint.y, pressed);
+        
+        needleSprite.x = needlePos.x;
+        needleSprite.y = needlePos.y;
+        needleBaseY = needlePos.y;
+        
+        if (needleShadowSprite) {
+            needleShadowSprite.x = shadowPos.x;
+            needleShadowSprite.y = shadowPos.y;
+        }
+        return;
+    }
+    
+    // Останавливаем предыдущую анимацию (только для десктопа)
     if (needleSprite.pressAnimation) {
         cancelAnimationFrame(needleSprite.pressAnimation);
     }
     
-    // Рассчитываем целевые позиции для иглы и тени
+    // Рассчитываем целевые позиции для иглы и тени (только для десктопа)
     const needleStartPos = { x: needleSprite.x, y: needleSprite.y };
     const shadowStartPos = needleShadowSprite ? { x: needleShadowSprite.x, y: needleShadowSprite.y } : { x: 0, y: 0 };
     
