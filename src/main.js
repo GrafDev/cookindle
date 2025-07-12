@@ -16,6 +16,9 @@ let needlePressed = false; // Состояние нажатия
 let currentClickPoint = { x: 0, y: 0 }; // Текущая точка клика/касания
 let isDragging = false; // Состояние перетаскивания
 
+// Глобальные переменные для игры
+let gameOverShown = false; // Флаг показа модалки Game Over
+
 // Глобальные переменные для системы отколов
 let chipsContainer = null; // Контейнер для падающих осколков
 let activeChips = []; // Массив падающих осколков
@@ -1635,29 +1638,39 @@ function calculateContactPoint(inputX, inputY) {
     return { x: inputX, y: inputY };
 }
 
-// Функция расчета позиции иглы относительно точки касания
-function calculateNeedlePosition(contactX, contactY, pressed = false) {
+// Функция расчета позиции иглы относительно ввода
+function calculateNeedlePosition(inputX, inputY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
-    if (pressed) {
-        // При нажатии игла сходится к точке касания
-        return { x: contactX, y: contactY };
+    if (isMobile) {
+        // На мобильных игла центром на точке касания пальца
+        // Игла всегда центрирована на точке касания пальца
+        return { x: inputX, y: inputY };
     } else {
-        // В обычном состоянии игла выше точки касания
-        return { x: contactX, y: contactY - distance };
+        // На десктопе игла относительно точки касания кусочков
+        if (pressed) {
+            return { x: inputX, y: inputY }; // Игла в точке касания (острие)
+        } else {
+            return { x: inputX, y: inputY - distance }; // Игла выше точки касания
+        }
     }
 }
 
-// Функция расчета позиции тени относительно точки касания
-function calculateShadowPosition(contactX, contactY, pressed = false) {
+// Функция расчета позиции тени относительно ввода
+function calculateShadowPosition(inputX, inputY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
-    if (pressed) {
-        // При нажатии тень сходится к точке касания
-        return { x: contactX, y: contactY };
+    if (isMobile) {
+        // На мобильных тень центром на точке касания пальца
+        // Тень всегда смещена относительно центра иглы
+        return { x: inputX + distance, y: inputY + distance };
     } else {
-        // В обычном состоянии тень ниже точки касания
-        return { x: contactX, y: contactY + distance };
+        // На десктопе тень относительно точки касания кусочков
+        if (pressed) {
+            return { x: inputX, y: inputY }; // Тень в точке касания
+        } else {
+            return { x: inputX + distance, y: inputY - distance }; // Тень смещена
+        }
     }
 }
 
@@ -1673,14 +1686,14 @@ function updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, inputX
     currentClickPoint.x = contactPoint.x;
     currentClickPoint.y = contactPoint.y;
     
-    // Обновляем позицию иглы относительно точки касания
-    const needlePos = calculateNeedlePosition(contactPoint.x, contactPoint.y, pressed);
+    // Обновляем позицию иглы относительно координат ввода
+    const needlePos = calculateNeedlePosition(inputX, inputY, pressed);
     needleSprite.x = needlePos.x;
     needleSprite.y = needlePos.y;
     
-    // Обновляем позицию тени относительно точки касания
+    // Обновляем позицию тени относительно координат ввода
     if (needleShadowSprite) {
-        const shadowPos = calculateShadowPosition(contactPoint.x, contactPoint.y, pressed);
+        const shadowPos = calculateShadowPosition(inputX, inputY, pressed);
         needleShadowSprite.x = shadowPos.x;
         needleShadowSprite.y = shadowPos.y;
     }
@@ -1848,7 +1861,8 @@ function setupDesktopInteractivity(gameArea) {
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
         
-        updateNeedlePosition(x, y, 'mouse');
+        // Обновляем позицию иглы с учетом текущего состояния нажатия
+        updateNeedlePosition(x, y, 'mouse', needlePressed);
         
         // Если мышь зажата и перемещается - воздействуем острием иглы
         if (isDragging && needlePressed) {
@@ -1914,8 +1928,8 @@ function setupMobileInteractivity(gameArea) {
         
         showTouchDebug(`TOUCH START: ${x.toFixed(0)}, ${y.toFixed(0)}`);
         
-        // Обновляем позицию иглы и показываем
-        updateNeedlePosition(x, y, 'touch');
+        // Обновляем позицию иглы и показываем (нажатое состояние)
+        updateNeedlePosition(x, y, 'touch', true);
         showNeedle();
         animateNeedlePress(true);
         
@@ -1933,8 +1947,8 @@ function setupMobileInteractivity(gameArea) {
         const x = touch.clientX - rect.left;
         const y = touch.clientY - rect.top;
         
-        // Перемещаем иглу следом за пальцем
-        updateNeedlePosition(x, y, 'touch');
+        // Перемещаем иглу следом за пальцем (сохраняем нажатое состояние)
+        updateNeedlePosition(x, y, 'touch', needlePressed);
         
         // Воздействуем острием иглы при перемещении
         if (needlePressed) {
@@ -1992,7 +2006,7 @@ function hideNeedle() {
 }
 
 // Обновить позицию иглы
-function updateNeedlePosition(x, y, inputType) {
+function updateNeedlePosition(x, y, inputType, pressed = false) {
     const needleSprite = window.needle;
     const needleShadowSprite = window.needleShadow;
     if (!needleSprite) return;
@@ -2015,8 +2029,8 @@ function updateNeedlePosition(x, y, inputType) {
         }
     }
     
-    // Обновляем позиции иглы и тени относительно точки клика
-    updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, x, y, false);
+    // Обновляем позиции иглы и тени с учетом состояния нажатия
+    updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, x, y, pressed);
 }
 
 // Проверка, находится ли точка внутри печеньки
@@ -2193,8 +2207,9 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
     const velocityX = 0; // Убираем горизонтальное движение
     const velocityY = 0; // Начальная скорость по Y = 0, будет только гравитация
     
-    // Параметры анимации
-    const duration = config.duration * 1000; // в миллисекундах
+    // Параметры анимации с небольшой случайной вариативностью скорости
+    const speedVariation = 0.8 + Math.random() * 0.4; // От 0.8 до 1.2 - небольшая вариативность
+    const duration = config.duration * 1000 * speedVariation; // в миллисекундах
     const startTime = performance.now();
     let lastLogTime = startTime;
     
@@ -2682,6 +2697,9 @@ function animateFullCookieCrumble(callback) {
 
 // Функция показа модального окна Game Over
 function showGameOverModal() {
+    // Проверяем, не показывалась ли уже модалка
+    if (gameOverShown) return;
+    gameOverShown = true;
     // Получаем текстуру печеньки для фона
     const cookieTexture = Assets.get('cookie');
     const cookieDataUrl = cookieTexture ? cookieTexture.source.resource.src : '';
@@ -2838,6 +2856,7 @@ function restartGame() {
         needlePressed = false;
         isDragging = false;
         activeChips = [];
+        gameOverShown = false; // Сбрасываем флаг модалки
         
         // Очищаем ссылки на игровые объекты
         window.cookie = null;
