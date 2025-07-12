@@ -783,6 +783,7 @@ function drawBigHexagon(app, cookieSprite) {
     return hexGraphics;
 }
 
+
 // Генерация гексагональной сетки внутри окружности печенья
 function generateSmallHexagons(app, cookieSprite) {
     const config = CONFIG.cookie.pieces;
@@ -815,7 +816,7 @@ function generateSmallHexagons(app, cookieSprite) {
     
     
     // Создаем шестиугольник с возможностью поворота
-    function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0, isInCenterShape = false) {
+    function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0, isInCenterShape = false, isEdgePiece = false) {
         const hexGraphics = new Graphics();
         
         // Рисуем многоугольник с поворотом (из конфига)
@@ -893,6 +894,25 @@ function generateSmallHexagons(app, cookieSprite) {
             hexContainer.addChild(pinkOverlay);
         }
         
+        // Добавляем синий оверлей для крайних кусочков
+        if (isEdgePiece) {
+            const blueOverlay = new Graphics();
+            // Создаем вершины синего оверлея (как маска)
+            const overlayVertices = [];
+            for (let j = 0; j < sides; j++) {
+                const angle = (j * 2 * Math.PI) / sides + rotationOffset;
+                const vx = Math.cos(angle) * enlargedRadius;
+                const vy = Math.sin(angle) * enlargedRadius;
+                overlayVertices.push(vx, vy);
+            }
+            blueOverlay.poly(overlayVertices);
+            blueOverlay.fill({ color: 0x0080FF, alpha: 0.3 }); // Прозрачный синий с 30% прозрачности
+            blueOverlay.x = 0;
+            blueOverlay.y = 0;
+            
+            hexContainer.addChild(blueOverlay);
+        }
+        
         // Убираем обводку - оставляем только текстуру
         
         // Убираем интерактивность контейнера, так как обработка происходит через иглу
@@ -914,7 +934,8 @@ function generateSmallHexagons(app, cookieSprite) {
             originalColor: color,
             currentColor: color,
             isPainted: false,
-            isInCenterShape: isInCenterShape // Добавляем информацию о центральной форме
+            isInCenterShape: isInCenterShape, // Добавляем информацию о центральной форме
+            isEdgePiece: isEdgePiece // Добавляем информацию о крайних кусочках
         };
     }
     
@@ -969,15 +990,23 @@ function generateSmallHexagons(app, cookieSprite) {
             // Проверяем, находится ли кусочек внутри центральной формы
             const isInCenterShape = isPointInCoreArea(x, y);
             
-            // Цвет в зависимости от того, полностью ли шестиугольник внутри печенья
-            const color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
+            // Определяем, является ли кусочек крайним (пересекается, но не полностью внутри)
+            const isEdgePiece = !isInsideCookie && hasIntersection;
+            
+            // Цвет в зависимости от типа кусочка
+            let color;
+            if (isEdgePiece) {
+                color = 0x0080FF; // Прозрачный синий для крайних кусочков
+            } else {
+                color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
+            }
             
             // Поворот для каждого многоугольника (случайный или фиксированный)
             const rotation = CONFIG.cookie.pieces.randomRotation ? 
                 Math.random() * 2 * Math.PI : 
                 rotationOffset;
             
-            const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape);
+            const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
             hexagons.push(hex);
             
             if (isDev) {
@@ -1156,7 +1185,9 @@ function findHexagonNeighbors(targetHexagon, allHexagons) {
 function findConnectedComponents(clickedHexagon, allHexagons) {
     const visited = new Set();
     const centerHexagons = allHexagons.filter(hex => hex.isInCenterShape && !hex.isPainted);
-    const nonCenterHexagons = allHexagons.filter(hex => !hex.isInCenterShape && !hex.isPainted);
+    // Исключаем крайние кусочки из расчета связности
+    const nonCenterHexagons = allHexagons.filter(hex => !hex.isInCenterShape && !hex.isPainted && !hex.isEdgePiece);
+    const edgeHexagons = allHexagons.filter(hex => hex.isEdgePiece && !hex.isPainted);
     
     // Функция BFS для поиска связанных кусочков
     function bfsComponent(startHexagon, hexagonsPool) {
@@ -1192,11 +1223,46 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
         return false;
     }
     
+    // Функция поиска крайних кусочков, которые должны упасть
+    function findFallingEdgePieces(disconnectedComponents) {
+        const fallingEdgePieces = [];
+        
+        for (const edgeHex of edgeHexagons) {
+            let shouldFall = false;
+            
+            // 1. Проверяем, есть ли среди соседей падающие ОБЫЧНЫЕ кусочки из отколовшихся компонентов
+            const neighbors = findHexagonNeighbors(edgeHex, nonCenterHexagons);
+            const hasFallingRegularNeighbor = neighbors.some(neighbor => 
+                !neighbor.isEdgePiece && // Сосед должен быть обычным, не крайним
+                disconnectedComponents.some(component => component.includes(neighbor))
+            );
+            
+            if (hasFallingRegularNeighbor) {
+                shouldFall = true;
+            }
+            
+            // 2. Проверяем, является ли нажатый кусочек соседом и обычным (не крайним)
+            if (!shouldFall && !clickedHexagon.isEdgePiece && !clickedHexagon.isInCenterShape) {
+                const isNeighborOfClicked = neighbors.some(neighbor => neighbor.id === clickedHexagon.id);
+                if (isNeighborOfClicked) {
+                    shouldFall = true;
+                }
+            }
+            
+            if (shouldFall) {
+                fallingEdgePieces.push(edgeHex);
+            }
+        }
+        
+        return fallingEdgePieces;
+    }
+    
     // Сначала отмечаем нажатый кусочек как посещенный
     visited.add(clickedHexagon.id);
     const disconnectedHexagons = [];
+    const disconnectedComponents = [];
     
-    // Ищем все компоненты среди не-центральных кусочков
+    // Ищем все компоненты среди не-центральных и не-крайних кусочков
     for (const hexagon of nonCenterHexagons) {
         if (!visited.has(hexagon.id) && !hexagon.isPainted) {
             const component = bfsComponent(hexagon, nonCenterHexagons);
@@ -1204,9 +1270,14 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
             // Проверяем, есть ли у этого компонента путь к центру
             if (!hasPathToCenter(component)) {
                 disconnectedHexagons.push(...component);
+                disconnectedComponents.push(component);
             }
         }
     }
+    
+    // Находим крайние кусочки, которые должны упасть
+    const fallingEdgePieces = findFallingEdgePieces(disconnectedComponents);
+    disconnectedHexagons.push(...fallingEdgePieces);
     
     return disconnectedHexagons;
 }
