@@ -1411,6 +1411,8 @@ function handleNeedlePaintingAtPoint() {
     if (hexagon && !hexagon.isPainted) {
         // Проверяем, является ли кусочек центральным (внутри формы), но НЕ краевым
         if (hexagon.isInCenterShape && !hexagon.isEdgeOfCenterShape) {
+            // СРАЗУ устанавливаем флаг Game Over, чтобы заблокировать проверку победы
+            gameOverShown = true;
             // Сначала рассыпаем всю печеньку, потом показываем Game Over
             animateFullCookieCrumble(() => {
                 showGameOverModal();
@@ -1455,8 +1457,9 @@ function handleNeedlePaintingAtPoint() {
             });
             
             // Проверяем победу через время, достаточное для анимации падения
+            // НО только если не было Game Over
             setTimeout(() => {
-                if (checkVictoryCondition()) {
+                if (!gameOverShown && checkVictoryCondition()) {
                     showCongratulationsModal();
                 }
             }, CONFIG.cookie.pieces.chipAnimation.duration * 1000 + 500); // Даем время на анимацию + буфер
@@ -2837,11 +2840,13 @@ function showCongratulationsModal() {
     title.textContent = 'CONGRATULATIONS!';
     title.style.cssText = `
         color: #2E7D32;
-        font-size: 42px;
+        font-size: 32px;
         margin: 0 0 20px 0;
         text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3);
         font-weight: 900;
-        letter-spacing: 2px;
+        letter-spacing: 1px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     `;
     
     // Подзаголовок
@@ -2921,8 +2926,8 @@ function showCongratulationsModal() {
 
 // Функция показа модального окна Game Over
 function showGameOverModal() {
-    // Проверяем, не показывалась ли уже модалка
-    if (gameOverShown) return;
+    // Проверяем, не показывалась ли уже модалка (но не перезаписываем флаг, если он уже true)
+    if (gameOverShown && document.getElementById('game-over-modal')) return;
     gameOverShown = true;
     // Получаем текстуру печеньки для фона
     const cookieTexture = Assets.get('cookie');

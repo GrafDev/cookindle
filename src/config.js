@@ -35,7 +35,7 @@ export const CONFIG = {
         },
         // Параметры кусочков-масок (как в игре Gemblo)
         pieces: {
-            hexGrid: 51, // Количество шестиугольников между противоположными углами описанного шестиугольника
+            hexGrid: 41, // Количество шестиугольников между противоположными углами описанного шестиугольника
             polygonSides: 9, // Количество углов у многоугольников (6 = шестиугольник, 9 = девятиугольник)
             sizeMultiplier: 1.1, // Множитель размера многоугольников (1.0 = обычный размер, 1.1 = увеличено на 10%)
             randomRotation: false, // Случайный поворот каждого многоугольника
@@ -146,12 +146,12 @@ export const CONFIG = {
     
     // Dev настройки
     dev: {
-        showBorders: true,
-        showLabels: true,
-        consoleLogging: true,
+        showBorders: false,
+        showLabels: false,
+        consoleLogging: false,
         // Принудительная отладка для мобильных (даже в продакшене)
-        forceMobileDebug: true,
+        forceMobileDebug: false,
         // Показ цветных оверлеев (зеленый для краевых центральных, синий для краевых, розовый для центральных)
-        showColorOverlays: true
+        showColorOverlays: false
     }
 };
