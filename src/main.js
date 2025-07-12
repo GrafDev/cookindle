@@ -191,6 +191,19 @@ function makeBackgroundsTransparent() {
     // Скрываем курсор на всем body для надежности
     document.body.style.cursor = 'none';
     
+    // Добавляем обработчики для возврата курсора вне игровой области
+    if (gameArea) {
+        // Когда мышь покидает игровую область - показываем курсор
+        gameArea.addEventListener('mouseleave', () => {
+            document.body.style.cursor = 'default';
+        });
+        
+        // Когда мышь входит в игровую область - скрываем курсор
+        gameArea.addEventListener('mouseenter', () => {
+            document.body.style.cursor = 'none';
+        });
+    }
+    
     if (isDev) {
         console.log('🔍 CSS фоны сделаны прозрачными, отступы убраны');
     }
@@ -705,13 +718,8 @@ function createCookie(app) {
     // Добавляем на сцену (но невидимую)
     app.stage.addChild(cookieSprite);
     
-    // Создаем и добавляем центральную форму поверх печенья
-    const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
-    app.stage.addChild(centerShapeContainer);
-    
     // Сохраняем ссылки для адаптивности
     window.cookie = cookieSprite;
-    window.centerShape = centerShapeContainer;
     
     // Скрываем большой шестиугольник
     // const hexGraphics = drawBigHexagon(app, cookieSprite);
@@ -719,7 +727,12 @@ function createCookie(app) {
     // Размещаем маленькие шестиугольники
     const smallHexagons = generateSmallHexagons(app, cookieSprite);
     
+    // Создаем и добавляем центральную форму ПОВЕРХ кусочков
+    const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
+    app.stage.addChild(centerShapeContainer);
+    
     // Сохраняем ссылки для обновления размера
+    window.centerShape = centerShapeContainer;
     // window.bigHexagon = hexGraphics; // Большой шестиугольник скрыт
     window.smallHexagons = smallHexagons;
     
@@ -802,7 +815,7 @@ function generateSmallHexagons(app, cookieSprite) {
     
     
     // Создаем шестиугольник с возможностью поворота
-    function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0) {
+    function createHexagon(x, y, hexId, color = 0x0000FF, rotationOffset = 0, isInCenterShape = false) {
         const hexGraphics = new Graphics();
         
         // Рисуем многоугольник с поворотом (из конфига)
@@ -861,6 +874,25 @@ function generateSmallHexagons(app, cookieSprite) {
         hexContainer.addChild(textureSprite);
         hexContainer.addChild(mask);
         
+        // Добавляем розовый оверлей для кусочков внутри центральной формы
+        if (isInCenterShape) {
+            const pinkOverlay = new Graphics();
+            // Создаем вершины розового оверлея (как маска)
+            const overlayVertices = [];
+            for (let j = 0; j < sides; j++) {
+                const angle = (j * 2 * Math.PI) / sides + rotationOffset;
+                const vx = Math.cos(angle) * enlargedRadius;
+                const vy = Math.sin(angle) * enlargedRadius;
+                overlayVertices.push(vx, vy);
+            }
+            pinkOverlay.poly(overlayVertices);
+            pinkOverlay.fill({ color: 0xFF69B4, alpha: 0.5 }); // Розовый с 50% прозрачности
+            pinkOverlay.x = 0;
+            pinkOverlay.y = 0;
+            
+            hexContainer.addChild(pinkOverlay);
+        }
+        
         // Убираем обводку - оставляем только текстуру
         
         // Делаем интерактивным (без изменения курсора)
@@ -868,6 +900,15 @@ function generateSmallHexagons(app, cookieSprite) {
         
         // Добавляем обработчик клика для анимации падения
         hexContainer.on('pointerdown', () => {
+            // Проверяем, является ли кусочек центральным (внутри формы)
+            if (isInCenterShape) {
+                // Сначала рассыпаем всю печеньку, потом показываем Game Over
+                animateFullCookieCrumble(() => {
+                    showGameOverModal();
+                });
+                return;
+            }
+            
             animateHexagonFall(hexContainer, smallHexRadius, x, y);
         });
         
@@ -886,7 +927,8 @@ function generateSmallHexagons(app, cookieSprite) {
             index: hexId,
             originalColor: color,
             currentColor: color,
-            isPainted: false
+            isPainted: false,
+            isInCenterShape: isInCenterShape // Добавляем информацию о центральной форме
         };
     }
     
@@ -938,6 +980,9 @@ function generateSmallHexagons(app, cookieSprite) {
                 continue; // Нет пересечения с печеньем
             }
             
+            // Проверяем, находится ли кусочек внутри центральной формы
+            const isInCenterShape = isPointInCoreArea(x, y);
+            
             // Цвет в зависимости от того, полностью ли шестиугольник внутри печенья
             const color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
             
@@ -946,11 +991,13 @@ function generateSmallHexagons(app, cookieSprite) {
                 Math.random() * 2 * Math.PI : 
                 rotationOffset;
             
-            const hex = createHexagon(x, y, hexId++, color, rotation);
+            const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape);
             hexagons.push(hex);
             
             if (isDev) {
-                console.log(`🔸 Hex (${q}, ${r}, ${s}): позиция (${x.toFixed(1)}, ${y.toFixed(1)}), расстояние=${distanceFromCenter.toFixed(1)}, внутри=${isInsideCookie}`);
+                const formNames = { 1: 'круг', 2: 'квадрат', 3: 'треугольник' };
+                const currentForm = formNames[CONFIG.centerShape.form] || 'неизвестно';
+                console.log(`🔸 Hex (${q}, ${r}, ${s}): позиция (${x.toFixed(1)}, ${y.toFixed(1)}), расстояние=${distanceFromCenter.toFixed(1)}, внутри=${isInsideCookie}, в центре=${isInCenterShape} (форма: ${currentForm})`);
             }
         }
     }
@@ -993,20 +1040,6 @@ function updateCookieSize() {
     cookieSprite.x = gameWidth / 2;
     cookieSprite.y = gameHeight / 2;
     
-    // Обновляем центральную форму
-    const centerShapeContainer = window.centerShape;
-    if (centerShapeContainer) {
-        // Удаляем старый контейнер
-        centerShapeContainer.parent?.removeChild(centerShapeContainer);
-        
-        // Создаем новый с обновленным размером
-        const newCenterShape = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
-        window.app.stage.addChild(newCenterShape);
-        
-        // Обновляем ссылку
-        window.centerShape = newCenterShape;
-    }
-    
     // Большой шестиугольник скрыт, не обновляем
     /*
     const bigHexagon = window.bigHexagon;
@@ -1041,6 +1074,20 @@ function updateCookieSize() {
         
         // Обновляем ссылку
         window.smallHexagons = newSmallHexagons;
+    }
+    
+    // Обновляем центральную форму ПОВЕРХ кусочков
+    const centerShapeContainer = window.centerShape;
+    if (centerShapeContainer) {
+        // Удаляем старый контейнер
+        centerShapeContainer.parent?.removeChild(centerShapeContainer);
+        
+        // Создаем новый с обновленным размером
+        const newCenterShape = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
+        window.app.stage.addChild(newCenterShape);
+        
+        // Обновляем ссылку
+        window.centerShape = newCenterShape;
     }
     
     // Обновляем размер иглы
@@ -1154,6 +1201,15 @@ function handleNeedlePaintingAtPoint() {
     
     const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
     if (hexagon && !hexagon.isPainted) {
+        // Проверяем, является ли кусочек центральным (внутри формы)
+        if (hexagon.isInCenterShape) {
+            // Сначала рассыпаем всю печеньку, потом показываем Game Over
+            animateFullCookieCrumble(() => {
+                showGameOverModal();
+            });
+            return true;
+        }
+        
         // Запускаем анимацию падения вместо закраски
         if (hexagon.container) {
             // Передаем реальные координаты шестиугольника
@@ -2301,6 +2357,43 @@ function findLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
 
 
 
+// Проверка попадания точки в треугольник
+function isPointInTriangle(pointX, pointY, centerX, centerY, size) {
+    // Вычисляем вершины равностороннего треугольника (как в drawTriangleShape)
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3;
+    
+    // Вершины треугольника (точно как в drawTriangleShape)
+    const x1 = centerX;                    // Верхняя точка
+    const y1 = centerY - (height - centroidOffsetY);
+    
+    const x2 = centerX + halfBase;         // Правая нижняя точка
+    const y2 = centerY + centroidOffsetY;
+    
+    const x3 = centerX - halfBase;         // Левая нижняя точка  
+    const y3 = centerY + centroidOffsetY;
+    
+    // Отладочная информация
+    if (isDev && Math.random() < 0.001) { // Показываем редко чтобы не засорять консоль
+        console.log(`🔺 Треугольник: размер=${size}, вершины: (${x1.toFixed(1)}, ${y1.toFixed(1)}), (${x2.toFixed(1)}, ${y2.toFixed(1)}), (${x3.toFixed(1)}, ${y3.toFixed(1)})`);
+    }
+    
+    // Используем барицентрические координаты для проверки
+    const denominator = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
+    
+    if (Math.abs(denominator) < 1e-10) {
+        return false; // Вырожденный треугольник
+    }
+    
+    const a = ((y2 - y3) * (pointX - x3) + (x3 - x2) * (pointY - y3)) / denominator;
+    const b = ((y3 - y1) * (pointX - x3) + (x1 - x3) * (pointY - y3)) / denominator;
+    const c = 1 - a - b;
+    
+    // Точка внутри треугольника, если все барицентрические координаты >= 0
+    return a >= 0 && b >= 0 && c >= 0;
+}
+
 // Определение центральной области (основной части печенья)
 function isPointInCoreArea(x, y) {
     const cookieSprite = window.cookie;
@@ -2319,9 +2412,8 @@ function isPointInCoreArea(x, y) {
         case 2: // Квадрат
             return Math.abs(x - centerX) <= coreSize && Math.abs(y - centerY) <= coreSize;
             
-        case 3: // Треугольник (упрощенный - как круг)
-            const triangleDistance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-            return triangleDistance <= coreSize;
+        case 3: // Треугольник (точная проверка)
+            return isPointInTriangle(x, y, centerX, centerY, coreSize * 2); // coreSize это половина, а нужен полный размер
             
         default:
             return false;
@@ -2441,6 +2533,235 @@ function animateChipFall(chip, area) {
     };
     
     animate();
+}
+
+// Функция анимации полного рассыпания печеньки
+function animateFullCookieCrumble(callback) {
+    const smallHexagons = window.smallHexagons;
+    if (!smallHexagons || smallHexagons.length === 0) {
+        // Если нет кусочков, сразу вызываем callback
+        if (callback) callback();
+        return;
+    }
+    
+    // Получаем все кусочки, которые еще видимы
+    const visibleHexagons = smallHexagons.filter(hex => 
+        hex.container && 
+        hex.container.parent && 
+        !hex.isPainted
+    );
+    
+    if (visibleHexagons.length === 0) {
+        // Если нет видимых кусочков, сразу вызываем callback
+        if (callback) callback();
+        return;
+    }
+    
+    // Запускаем падение всех кусочков с небольшим разнобоем
+    visibleHexagons.forEach((hex, index) => {
+        // Случайная задержка от 0 до 200мс для создания разнобоя
+        const randomDelay = Math.random() * 200;
+        
+        setTimeout(() => {
+            if (hex.container && hex.container.parent && !hex.isPainted) {
+                // Запускаем анимацию падения
+                animateHexagonFall(hex.container, hex.radius, hex.x, hex.y);
+                hex.isPainted = true; // Помечаем как обработанный
+            }
+        }, randomDelay);
+    });
+    
+    // Вызываем callback через время, достаточное для анимации
+    setTimeout(() => {
+        if (callback) callback();
+    }, 1400); // Даем время на анимацию всех кусочков с учетом разнобоя
+}
+
+// Функция показа модального окна Game Over
+function showGameOverModal() {
+    // Получаем текстуру печеньки для фона
+    const cookieTexture = Assets.get('cookie');
+    const cookieDataUrl = cookieTexture ? cookieTexture.source.resource.src : '';
+    
+    // Создаем модальное окно только с блюром
+    const modal = document.createElement('div');
+    modal.id = 'game-over-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        font-family: 'Comic Sans MS', cursive, Arial, sans-serif;
+        backdrop-filter: blur(8px);
+    `;
+    
+    // Добавляем CSS анимации (без мигания оверлея)
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes modalAppear {
+            0% { 
+                transform: scale(0.5) rotate(-5deg);
+                opacity: 0;
+            }
+            100% { 
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+            }
+        }
+        @keyframes buttonBounce {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // Создаем содержимое модального окна с bg_modal.png
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background: url('./src/assets/textures/bg_modal.png');
+        background-size: cover;
+        background-position: center;
+        position: relative;
+        padding: 50px;
+        border-radius: 30px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 8px rgba(235, 141, 39, 0.3);
+        max-width: 450px;
+        width: 90%;
+        animation: modalAppear 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        border: 4px solid #EB8D27;
+    `;
+    
+    // Контейнер для контента (без белого оверлея)
+    const contentContainer = document.createElement('div');
+    
+    // Заголовок Game Over
+    const title = document.createElement('h1');
+    title.textContent = 'GAME OVER';
+    title.style.cssText = `
+        color: #d32f2f;
+        font-size: 52px;
+        margin: 0 0 20px 0;
+        text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3);
+        font-weight: 900;
+        letter-spacing: 2px;
+        transform: rotate(-2deg);
+    `;
+    
+    // Подзаголовок
+    const subtitle = document.createElement('p');
+    subtitle.textContent = '🍪 You broke the figure! 🍪';
+    subtitle.style.cssText = `
+        color: #8B4513;
+        font-size: 20px;
+        margin: 0 0 35px 0;
+        font-weight: bold;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        line-height: 1.4;
+    `;
+    
+    // Кнопка Again
+    const againButton = document.createElement('button');
+    againButton.textContent = '🔄 TRY AGAIN';
+    againButton.style.cssText = `
+        background: linear-gradient(45deg, #4caf50, #66bb6a);
+        color: white;
+        border: none;
+        padding: 18px 35px;
+        font-size: 18px;
+        font-weight: bold;
+        border-radius: 25px;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        box-shadow: 0 8px 20px rgba(76, 175, 80, 0.3);
+        animation: buttonBounce 2s ease-in-out infinite;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+    `;
+    
+    // Эффекты для кнопки
+    againButton.addEventListener('mouseenter', () => {
+        againButton.style.background = 'linear-gradient(45deg, #45a049, #5cb85c)';
+        againButton.style.transform = 'translateY(-3px) scale(1.05)';
+        againButton.style.boxShadow = '0 12px 25px rgba(76, 175, 80, 0.4)';
+    });
+    againButton.addEventListener('mouseleave', () => {
+        againButton.style.background = 'linear-gradient(45deg, #4caf50, #66bb6a)';
+        againButton.style.transform = 'translateY(0) scale(1)';
+        againButton.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.3)';
+    });
+    
+    // Обработчик клика на кнопку
+    againButton.addEventListener('click', () => {
+        // Анимация закрытия
+        modal.style.animation = 'none';
+        modal.style.opacity = '0';
+        modal.style.transform = 'scale(0.9)';
+        modal.style.transition = 'all 0.3s ease-out';
+        
+        setTimeout(() => {
+            document.body.removeChild(modal);
+            document.head.removeChild(style);
+            restartGame();
+        }, 300);
+    });
+    
+    // Собираем модальное окно
+    contentContainer.appendChild(title);
+    contentContainer.appendChild(subtitle);
+    contentContainer.appendChild(againButton);
+    modalContent.appendChild(contentContainer);
+    modal.appendChild(modalContent);
+    
+    // Добавляем на страницу
+    document.body.appendChild(modal);
+}
+
+// Функция перезапуска игры
+function restartGame() {
+    try {
+        // Очищаем сцену от всех объектов
+        if (window.app && window.app.stage) {
+            window.app.stage.removeChildren();
+        }
+        
+        // Сброс глобальных переменных
+        needlePressed = false;
+        isDragging = false;
+        activeChips = [];
+        
+        // Очищаем ссылки на игровые объекты
+        window.cookie = null;
+        window.needle = null;
+        window.needleShadow = null;
+        window.centerShape = null;
+        window.smallHexagons = [];
+        
+        // Создаем новую печеньку и игровые объекты
+        const app = window.app;
+        createCookie(app);
+        createNeedle(app);
+        
+        // Настраиваем интерактивность заново
+        setupInteractivity(app);
+        
+        // Запускаем анимацию пульсации
+        startPulseAnimation(app);
+        
+        if (isDev) {
+            console.log('🔄 Игра перезапущена успешно');
+        }
+    } catch (error) {
+        // Если что-то пошло не так, перезагружаем страницу как fallback
+        console.error('Ошибка при перезапуске игры:', error);
+        window.location.reload();
+    }
 }
 
 // Запуск приложения
