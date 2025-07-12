@@ -895,22 +895,8 @@ function generateSmallHexagons(app, cookieSprite) {
         
         // Убираем обводку - оставляем только текстуру
         
-        // Делаем интерактивным (без изменения курсора)
-        hexContainer.eventMode = 'static';
-        
-        // Добавляем обработчик клика для анимации падения
-        hexContainer.on('pointerdown', () => {
-            // Проверяем, является ли кусочек центральным (внутри формы)
-            if (isInCenterShape) {
-                // Сначала рассыпаем всю печеньку, потом показываем Game Over
-                animateFullCookieCrumble(() => {
-                    showGameOverModal();
-                });
-                return;
-            }
-            
-            animateHexagonFall(hexContainer, smallHexRadius, x, y);
-        });
+        // Убираем интерактивность контейнера, так как обработка происходит через иглу
+        hexContainer.eventMode = 'none';
         
         // Добавляем на сцену
         app.stage.addChild(hexContainer);
@@ -1145,6 +1131,86 @@ function findHexagonAtPoint(x, y) {
     return null;
 }
 
+// Поиск соседей шестиугольника (находящихся на расстоянии меньше удвоенного радиуса)
+function findHexagonNeighbors(targetHexagon, allHexagons) {
+    const neighbors = [];
+    const maxDistance = targetHexagon.radius * 2.2; // Немного больше чем 2 радиуса для учета погрешности
+    
+    for (const hexagon of allHexagons) {
+        if (hexagon.id === targetHexagon.id) continue; // Пропускаем себя
+        
+        const distance = Math.sqrt(
+            Math.pow(hexagon.x - targetHexagon.x, 2) + 
+            Math.pow(hexagon.y - targetHexagon.y, 2)
+        );
+        
+        if (distance <= maxDistance) {
+            neighbors.push(hexagon);
+        }
+    }
+    
+    return neighbors;
+}
+
+// Алгоритм поиска связанных компонентов (BFS)
+function findConnectedComponents(clickedHexagon, allHexagons) {
+    const visited = new Set();
+    const centerHexagons = allHexagons.filter(hex => hex.isInCenterShape && !hex.isPainted);
+    const nonCenterHexagons = allHexagons.filter(hex => !hex.isInCenterShape && !hex.isPainted);
+    
+    // Функция BFS для поиска связанных кусочков
+    function bfsComponent(startHexagon, hexagonsPool) {
+        const component = [];
+        const queue = [startHexagon];
+        visited.add(startHexagon.id);
+        
+        while (queue.length > 0) {
+            const current = queue.shift();
+            component.push(current);
+            
+            const neighbors = findHexagonNeighbors(current, hexagonsPool);
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id) && !neighbor.isPainted) {
+                    visited.add(neighbor.id);
+                    queue.push(neighbor);
+                }
+            }
+        }
+        
+        return component;
+    }
+    
+    // Проверяем, есть ли путь от компонента до центральных кусочков
+    function hasPathToCenter(component) {
+        // Ищем хотя бы один кусочек из компонента, который является соседом с центральным кусочком
+        for (const hexagon of component) {
+            const neighbors = findHexagonNeighbors(hexagon, centerHexagons);
+            if (neighbors.length > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // Сначала отмечаем нажатый кусочек как посещенный
+    visited.add(clickedHexagon.id);
+    const disconnectedHexagons = [];
+    
+    // Ищем все компоненты среди не-центральных кусочков
+    for (const hexagon of nonCenterHexagons) {
+        if (!visited.has(hexagon.id) && !hexagon.isPainted) {
+            const component = bfsComponent(hexagon, nonCenterHexagons);
+            
+            // Проверяем, есть ли у этого компонента путь к центру
+            if (!hasPathToCenter(component)) {
+                disconnectedHexagons.push(...component);
+            }
+        }
+    }
+    
+    return disconnectedHexagons;
+}
+
 // Окрашивание шестиугольника в красный цвет
 function paintHexagon(hexagon, color = 0xFF0000) {
     if (!hexagon || hexagon.isPainted) return false;
@@ -1182,21 +1248,13 @@ function paintHexagon(hexagon, color = 0xFF0000) {
 function handleNeedlePaintingAtPoint() {
     if (!needlePressed) return false;
     
-    // Получаем позицию острия иглы (левый нижний угол)
-    const needleSprite = window.needle;
-    if (!needleSprite) return false;
+    // Используем текущую точку клика (где показывается красная точка)
+    // вместо расчета позиции спрайта иглы
+    const needleTipX = currentClickPoint.x;
+    const needleTipY = currentClickPoint.y;
     
-    // Рассчитываем позицию кончика иглы с учетом текущего якоря
-    let needleTipX, needleTipY;
-    
-    if (needleSprite.anchor.x === 0 && needleSprite.anchor.y === 1) {
-        // Якорь в левом нижнем углу (мышь) - позиция спрайта уже кончик иглы
-        needleTipX = needleSprite.x;
-        needleTipY = needleSprite.y;
-    } else {
-        // Якорь в центре (касание) - нужно сместиться к левому нижнему углу
-        needleTipX = needleSprite.x - needleSprite.width / 2;
-        needleTipY = needleSprite.y + needleSprite.height / 2;
+    if (isDev) {
+        console.log(`🎯 Проверяем попадание в точке (${needleTipX.toFixed(1)}, ${needleTipY.toFixed(1)})`);
     }
     
     const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
@@ -1210,13 +1268,43 @@ function handleNeedlePaintingAtPoint() {
             return true;
         }
         
-        // Запускаем анимацию падения вместо закраски
-        if (hexagon.container) {
-            // Передаем реальные координаты шестиугольника
-            animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
-            hexagon.isPainted = true; // Помечаем как обработанный
-            return true;
-        }
+        // Получаем все шестиугольники для анализа связности
+        const allHexagons = window.smallHexagons;
+        if (!allHexagons) return false;
+        
+        // Сначала помечаем нажатый кусочек как обработанный
+        hexagon.isPainted = true;
+        
+        // Находим все кусочки, которые потеряли связь с центром после нажатия
+        const disconnectedHexagons = findConnectedComponents(hexagon, allHexagons);
+        
+        // Ждем завершения анимации нажатия иглы перед падением кусочков
+        const needleAnimationDuration = CONFIG.needle.shadow.animationDuration * 1000; // Переводим в миллисекунды
+        
+        setTimeout(() => {
+            // Запускаем анимацию падения для нажатого кусочка
+            if (hexagon.container) {
+                animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
+            }
+            
+            // Запускаем анимацию падения для всех отколовшихся кусочков с небольшой задержкой
+            disconnectedHexagons.forEach((disconnectedHex, index) => {
+                if (disconnectedHex.container && !disconnectedHex.isPainted) {
+                    // Добавляем случайную задержку для более реалистичного эффекта
+                    const delay = 100 + (index * 50) + (Math.random() * 100);
+                    setTimeout(() => {
+                        disconnectedHex.isPainted = true;
+                        animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
+                    }, delay);
+                }
+            });
+            
+            if (isDev && disconnectedHexagons.length > 0) {
+                console.log(`🔴 Откололось ${disconnectedHexagons.length + 1} кусочков (${disconnectedHexagons.length} из-за потери связи с центром)`);
+            }
+        }, needleAnimationDuration);
+        
+        return true;
     }
     
     return false;
