@@ -860,7 +860,6 @@ function markEdgeOfCenterShapePieces(hexagons) {
             }
             
             if (isDev) {
-                console.log(`🟢 Кусочек (${centerPiece.x.toFixed(1)}, ${centerPiece.y.toFixed(1)}) помечен как краевой центральной формы`);
             }
         } else {
             centerPiece.isEdgeOfCenterShape = false;
@@ -1328,7 +1327,6 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
             if (hasFallingRegularNeighbor) {
                 shouldFall = true;
                 if (isDev) {
-                    console.log(`🔵 Краевой кусочек (${edgeHex.x.toFixed(1)}, ${edgeHex.y.toFixed(1)}) падает из-за падающего соседа`);
                 }
             }
             
@@ -1338,7 +1336,6 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
                 if (isNeighborOfClicked) {
                     shouldFall = true;
                     if (isDev) {
-                        console.log(`🔵 Краевой кусочек (${edgeHex.x.toFixed(1)}, ${edgeHex.y.toFixed(1)}) падает из-за нажатого соседа`);
                     }
                 }
             }
@@ -1439,7 +1436,6 @@ function handleNeedlePaintingAtPoint() {
         if (hexagon.isEdgeOfCenterShape) {
             // Краевые кусочки центральной формы не падают при нажатии
             if (isDev) {
-                console.log(`🟢 Нажат краевой кусочек центральной формы - не падает`);
             }
             return false; // Ничего не делаем, кусочек остается на месте
         }
@@ -2158,13 +2154,11 @@ function animateNeedlePress(pressed) {
     if (pressed) {
         const insideCookie = isPointInsideCookie(currentClickPoint.x, currentClickPoint.y);
         if (isDev) {
-            console.log(`🎯 Клик в точке (${currentClickPoint.x.toFixed(1)}, ${currentClickPoint.y.toFixed(1)}), внутри печеньки: ${insideCookie}`);
         }
         
         if (insideCookie) {
             // Пока просто логируем клик внутри печеньки
             if (isDev) {
-                console.log(`🔨 Клик иглой внутри печеньки в точке (${currentClickPoint.x.toFixed(1)}, ${currentClickPoint.y.toFixed(1)})`);
             }
         }
     }
@@ -2817,7 +2811,6 @@ function checkVictoryCondition() {
     );
     
     if (isDev) {
-        console.log(`🏆 Проверка победы: осталось ${remainingNonCenterPieces.length} обычных кусочков`);
     }
     
     // Если не осталось обычных кусочков - победа!
@@ -2917,7 +2910,12 @@ function showCongratulationsModal() {
     });
     
     playAgainButton.addEventListener('click', () => {
-        location.reload(); // Перезагружаем страницу для новой игры
+        // Закрываем модальное окно
+        modal.remove();
+        victoryShown = false;
+        
+        // Перезапускаем игру без перезагрузки страницы
+        restartGame();
     });
     
     // Добавляем элементы
@@ -3389,7 +3387,7 @@ function changeShape(newShapeId) {
         console.log(`🔄 Форма изменена на: ${shapeNames[newShapeId]}`);
     }
     
-    // Перезагружаем игру с новой формой
+    // Полное пересоздание печеньки с новой формой
     restartGame();
 }
 
@@ -3408,7 +3406,7 @@ function changeHexGrid(newHexGrid) {
         console.log(`🔄 Количество кусочков изменено на: ${clampedValue}`);
     }
     
-    // Перезагружаем игру с новым количеством кусочков
+    // НУЖНО пересоздать всю печеньку с новым количеством кусочков
     restartGame();
 }
 
@@ -3426,6 +3424,7 @@ function updateShapeButtons() {
     
     buttons.forEach((button, index) => {
         const shape = shapes[index];
+        if (!shape) return;
         const isActive = CONFIG.centerShape.form === shape.id;
         
         button.style.border = `2px solid ${isActive ? shape.color : '#666'}`;
