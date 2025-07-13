@@ -114,6 +114,9 @@ function showTouchDebug(message) {
 
 // Инициализация PixiJS приложения
 async function initApp() {
+    // Восстанавливаем сохраненное состояние конфига при загрузке
+    restoreConfigState();
+    
     const canvas = document.getElementById('game-canvas');
     const gameArea = document.querySelector('.game-area');
     
@@ -1705,12 +1708,14 @@ function createProgrammaticNeedleShadow() {
 // Функция вычисления точки касания кусочков из координат пальца/мыши
 function calculateContactPoint(inputX, inputY) {
     if (isMobile) {
-        // На мобильных для отзеркаленной иглы: красная точка вверху слева
+        // На мобильных красная точка в верхнем левом углу иглы (как было раньше)
         const needleSprite = window.needle;
         if (needleSprite) {
+            // Зеркалю только по Y оси!
+            const touchOffset = CONFIG.needle.touchOffset;
             return {
-                x: inputX - needleSprite.width / 2,
-                y: inputY - needleSprite.height / 2
+                x: inputX - needleSprite.width * touchOffset.x,
+                y: inputY - needleSprite.height * (1 - touchOffset.y)
             };
         }
     }
@@ -3122,6 +3127,9 @@ function showGameOverModal() {
 // Функция перезапуска игры
 function restartGame() {
     try {
+        // Восстанавливаем сохраненное состояние конфига
+        restoreConfigState();
+        
         // Очищаем сцену от всех объектов
         if (window.app && window.app.stage) {
             window.app.stage.removeChildren();
@@ -3150,6 +3158,15 @@ function restartGame() {
         
         // Запускаем анимацию пульсации
         startPulseAnimation(app);
+        
+        // Обновляем кнопки смены формы, если они есть
+        updateShapeButtons();
+        
+        // Обновляем значение hexGrid в UI, если кнопки есть
+        const hexValue = document.getElementById('hex-value');
+        if (hexValue) {
+            hexValue.textContent = CONFIG.cookie.pieces.hexGrid;
+        }
         
         if (isDev) {
             console.log('🔄 Игра перезапущена успешно');
@@ -3394,11 +3411,118 @@ function createShapeButtons() {
     }
 }
 
+// Функция плавного перехода для перезапуска игры
+function smoothRestart(restartCallback) {
+    const gameArea = document.querySelector('.game-area');
+    const canvas = document.getElementById('game-canvas');
+    
+    if (!gameArea || !canvas) {
+        // Если элементы не найдены, выполняем обычный перезапуск
+        restartCallback();
+        return;
+    }
+    
+    // Создаем оверлей для fade эффекта
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity ${CONFIG.transition.fadeOut.duration}ms ${CONFIG.transition.fadeOut.easing};
+        z-index: 1000;
+        border-radius: inherit;
+    `;
+    
+    gameArea.style.position = 'relative';
+    gameArea.appendChild(overlay);
+    
+    // Запускаем fade out
+    requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+    });
+    
+    // После завершения fade out выполняем перезапуск
+    setTimeout(() => {
+        restartCallback();
+        
+        // Запускаем fade in после небольшой задержки
+        setTimeout(() => {
+            overlay.style.transition = `opacity ${CONFIG.transition.fadeIn.duration}ms ${CONFIG.transition.fadeIn.easing}`;
+            overlay.style.opacity = '0';
+            
+            // Удаляем оверлей после завершения анимации
+            setTimeout(() => {
+                if (overlay.parentNode) {
+                    overlay.parentNode.removeChild(overlay);
+                }
+            }, CONFIG.transition.fadeIn.duration);
+            
+        }, CONFIG.transition.fadeIn.delay);
+        
+    }, CONFIG.transition.fadeOut.duration);
+}
+
+// Функции для сохранения и восстановления состояния конфига
+function saveConfigState() {
+    try {
+        const configState = {
+            centerShapeForm: CONFIG.centerShape.form,
+            hexGrid: CONFIG.cookie.pieces.hexGrid
+        };
+        localStorage.setItem('cookindle_config', JSON.stringify(configState));
+        
+        if (isDev) {
+            console.log('💾 Состояние конфига сохранено:', configState);
+        }
+    } catch (error) {
+        if (isDev) {
+            console.warn('⚠️ Ошибка сохранения конфига:', error);
+        }
+    }
+}
+
+function restoreConfigState() {
+    try {
+        const savedState = localStorage.getItem('cookindle_config');
+        if (savedState) {
+            const configState = JSON.parse(savedState);
+            
+            // Восстанавливаем только если значения валидные
+            if (configState.centerShapeForm && [1, 2, 3].includes(configState.centerShapeForm)) {
+                CONFIG.centerShape.form = configState.centerShapeForm;
+            }
+            
+            if (configState.hexGrid && configState.hexGrid >= 15 && configState.hexGrid <= 65) {
+                CONFIG.cookie.pieces.hexGrid = configState.hexGrid;
+            }
+            
+            if (isDev) {
+                console.log('🔄 Состояние конфига восстановлено:', configState);
+            }
+            
+            return true;
+        }
+    } catch (error) {
+        if (isDev) {
+            console.warn('⚠️ Ошибка восстановления конфига:', error);
+        }
+    }
+    return false;
+}
+
 // Функция смены формы центральной области
 function changeShape(newShapeId) {
     if (CONFIG.centerShape.form === newShapeId) return; // Уже активна
     
     CONFIG.centerShape.form = newShapeId;
+    
+    // Сохраняем состояние конфига
+    saveConfigState();
     
     if (isDev) {
         const shapeNames = { 1: 'Circle', 2: 'Square', 3: 'Triangle' };
@@ -3406,7 +3530,11 @@ function changeShape(newShapeId) {
     }
     
     // Полное пересоздание печеньки с новой формой
-    restartGame();
+    if (isMobile) {
+        smoothRestart(restartGame);
+    } else {
+        restartGame();
+    }
 }
 
 // Функция смены количества кусочков (hexGrid)
@@ -3420,12 +3548,19 @@ function changeHexGrid(newHexGrid) {
     
     CONFIG.cookie.pieces.hexGrid = clampedValue;
     
+    // Сохраняем состояние конфига
+    saveConfigState();
+    
     if (isDev) {
         console.log(`🔄 Количество кусочков изменено на: ${clampedValue}`);
     }
     
     // НУЖНО пересоздать всю печеньку с новым количеством кусочков
-    restartGame();
+    if (isMobile) {
+        smoothRestart(restartGame);
+    } else {
+        restartGame();
+    }
 }
 
 // Обновление активной кнопки
