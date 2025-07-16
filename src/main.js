@@ -1094,6 +1094,12 @@ function generateSmallHexagons(app, cookieSprite) {
                 rotationOffset;
             
             const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
+            
+            // Добавляем кубические координаты для поиска соседей
+            hex.q = q;
+            hex.r = r;
+            hex.s = s;
+            
             hexagons.push(hex);
             
         }
@@ -1412,6 +1418,62 @@ function paintHexagon(hexagon, color = 0xFF0000) {
     return true;
 }
 
+// Получение кусочков по кольцам вокруг центрального кусочка
+function getHexagonsByRings(centerHex, allHexagons, maxCount) {
+    if (!centerHex || !allHexagons || maxCount <= 0) return [];
+    
+    const result = [centerHex];
+    const added = new Set([centerHex.id]);
+    
+    // Направления для поиска соседей в кубических координатах
+    const directions = [
+        [1, -1, 0], [1, 0, -1], [0, 1, -1],
+        [-1, 1, 0], [-1, 0, 1], [0, -1, 1]
+    ];
+    
+    let currentRing = [centerHex];
+    
+    // Расширяем поиск по кольцам пока не достигнем нужного количества
+    while (result.length < maxCount && currentRing.length > 0) {
+        const nextRing = [];
+        
+        for (const hex of currentRing) {
+            // Проверяем всех соседей текущего кусочка
+            for (const [dq, dr, ds] of directions) {
+                const neighborQ = hex.q + dq;
+                const neighborR = hex.r + dr;
+                const neighborS = hex.s + ds;
+                
+                // Ищем соседа в массиве всех кусочков
+                const neighbor = allHexagons.find(h => 
+                    h.q === neighborQ && h.r === neighborR && h.s === neighborS
+                );
+                
+                if (neighbor && !added.has(neighbor.id) && !neighbor.isPainted) {
+                    // Проверяем, может ли кусочек выпасть (не является краевым центральной формы)
+                    const canFall = !neighbor.isEdgeOfCenterShape && 
+                                   !(neighbor.isInCenterShape && !neighbor.isEdgeOfCenterShape);
+                    
+                    if (canFall) {
+                        result.push(neighbor);
+                        added.add(neighbor.id);
+                        nextRing.push(neighbor);
+                        
+                        // Проверяем, достигли ли мы нужного количества
+                        if (result.length >= maxCount) {
+                            return result;
+                        }
+                    }
+                }
+            }
+        }
+        
+        currentRing = nextRing;
+    }
+    
+    return result;
+}
+
 // Обработка нажатия иглы на шестиугольники
 function handleNeedlePaintingAtPoint() {
     if (!needlePressed) return false;
@@ -1447,23 +1509,42 @@ function handleNeedlePaintingAtPoint() {
         const allHexagons = window.smallHexagons;
         if (!allHexagons) return false;
         
-        // Сначала помечаем нажатый кусочек как обработанный
-        hexagon.isPainted = true;
+        // Получаем группу кусочков для выпадения (включая нажатый)
+        const maxFallingPieces = CONFIG.cookie.pieces.maxFallingPieces;
+        const minFallingPieces = Math.max(1, Math.ceil(maxFallingPieces / 3)); // Минимум = треть от максимума, но не менее 1
+        const randomFallingCount = Math.floor(Math.random() * (maxFallingPieces - minFallingPieces + 1)) + minFallingPieces; // От minFallingPieces до maxFallingPieces
+        const fallingHexagons = getHexagonsByRings(hexagon, allHexagons, randomFallingCount);
         
-        // Находим все кусочки, которые потеряли связь с центром после нажатия
-        const disconnectedHexagons = findConnectedComponents(hexagon, allHexagons);
+        // Помечаем все выпадающие кусочки как обработанные
+        fallingHexagons.forEach(hex => {
+            hex.isPainted = true;
+        });
+        
+        // Находим все кусочки, которые потеряли связь с центром после выпадения группы
+        let disconnectedHexagons = [];
+        fallingHexagons.forEach(fallingHex => {
+            const disconnected = findConnectedComponents(fallingHex, allHexagons);
+            disconnectedHexagons = disconnectedHexagons.concat(disconnected);
+        });
+        
+        // Удаляем дубликаты из списка отключенных кусочков
+        const uniqueDisconnected = disconnectedHexagons.filter((hex, index, self) => 
+            index === self.findIndex(h => h.id === hex.id)
+        );
         
         // Ждем завершения анимации нажатия иглы перед падением кусочков
         const needleAnimationDuration = CONFIG.needle.shadow.animationDuration * 1000; // Переводим в миллисекунды
         
         setTimeout(() => {
-            // Запускаем анимацию падения для нажатого кусочка
-            if (hexagon.container) {
-                animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
-            }
+            // Запускаем анимацию падения для всех выпадающих кусочков
+            fallingHexagons.forEach((fallingHex) => {
+                if (fallingHex.container) {
+                    animateHexagonFall(fallingHex.container, fallingHex.radius, fallingHex.x, fallingHex.y);
+                }
+            });
             
             // Запускаем анимацию падения для всех отколовшихся кусочков мгновенно
-            disconnectedHexagons.forEach((disconnectedHex) => {
+            uniqueDisconnected.forEach((disconnectedHex) => {
                 if (disconnectedHex.container && !disconnectedHex.isPainted) {
                     disconnectedHex.isPainted = true;
                     animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
