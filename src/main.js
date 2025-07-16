@@ -1152,6 +1152,88 @@ function generateBoundaryPoints(centerX, centerY, radius, count) {
     return points;
 }
 
+// Генерация точек на границе центральной формы (круг, квадрат, треугольник)
+function generateCenterShapeBoundaryPoints(centerX, centerY, shapeSize, count) {
+    const points = [];
+    const shapeType = CONFIG.centerShape.form; // 1 = круг, 2 = квадрат, 3 = треугольник
+    
+    if (shapeType === 1) {
+        // Круг
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * 2 * Math.PI;
+            points.push([
+                centerX + shapeSize * Math.cos(angle),
+                centerY + shapeSize * Math.sin(angle)
+            ]);
+        }
+    } else if (shapeType === 2) {
+        // Квадрат
+        const halfSize = shapeSize;
+        const pointsPerSide = Math.ceil(count / 4);
+        
+        // Верхняя сторона
+        for (let i = 0; i < pointsPerSide; i++) {
+            const t = i / pointsPerSide;
+            points.push([centerX + (t * 2 - 1) * halfSize, centerY - halfSize]);
+        }
+        // Правая сторона
+        for (let i = 0; i < pointsPerSide; i++) {
+            const t = i / pointsPerSide;
+            points.push([centerX + halfSize, centerY + (t * 2 - 1) * halfSize]);
+        }
+        // Нижняя сторона
+        for (let i = 0; i < pointsPerSide; i++) {
+            const t = i / pointsPerSide;
+            points.push([centerX + (1 - t * 2) * halfSize, centerY + halfSize]);
+        }
+        // Левая сторона
+        for (let i = 0; i < pointsPerSide; i++) {
+            const t = i / pointsPerSide;
+            points.push([centerX - halfSize, centerY + (1 - t * 2) * halfSize]);
+        }
+    } else if (shapeType === 3) {
+        // Треугольник - простая генерация точек на границе
+        const pointsPerSide = Math.ceil(count / 3);
+        
+        // Вершины треугольника
+        const vertices = [
+            [centerX, centerY - shapeSize], // Верхняя
+            [centerX + shapeSize * Math.cos(Math.PI / 6), centerY + shapeSize * Math.sin(Math.PI / 6)], // Правая нижняя
+            [centerX - shapeSize * Math.cos(Math.PI / 6), centerY + shapeSize * Math.sin(Math.PI / 6)]  // Левая нижняя
+        ];
+        
+        // Генерируем точки на каждой стороне
+        for (let side = 0; side < 3; side++) {
+            const start = vertices[side];
+            const end = vertices[(side + 1) % 3];
+            
+            for (let i = 0; i < pointsPerSide; i++) {
+                const t = i / pointsPerSide;
+                points.push([
+                    start[0] + t * (end[0] - start[0]),
+                    start[1] + t * (end[1] - start[1])
+                ]);
+            }
+        }
+    }
+    
+    return points;
+}
+
+// Генерация точек на границе печенья (для внешних ячеек)
+function generateCookieBoundaryPoints(centerX, centerY, cookieRadius, count) {
+    const points = [];
+    
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * 2 * Math.PI;
+        const x = centerX + cookieRadius * Math.cos(angle);
+        const y = centerY + cookieRadius * Math.sin(angle);
+        points.push([x, y]);
+    }
+    
+    return points;
+}
+
 // Проверка валидности точки для диаграммы Вороного
 function isPointValidForVoronoi(x, y, centerX, centerY, cookieRadius) {
     const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
@@ -1212,47 +1294,142 @@ function lloydRelaxation(points, bbox, iterations = 1) {
     return currentPoints;
 }
 
-// Основная функция генерации диаграммы Вороного с комбинированным подходом
-function generateVoronoiWithBoundaries(centerX, centerY, cookieRadius) {
-    const config = CONFIG.cookie.pieces.voronoi;
-    const seedCount = config.seedCount;
-    const boundaryRatio = config.boundaryPointsRatio;
-    const innerRadius = cookieRadius * config.innerPointsRadius;
-    
+// Генерация точек снаружи центральной формы (заходим немного за границу)
+function generatePointsOutsideCenterShape(centerX, centerY, cookieRadius, count) {
     const points = [];
+    let attempts = 0;
+    const maxAttempts = count * 10;
     
-    // 1. Внутренние случайные точки
-    const innerCount = Math.floor(seedCount * (1 - boundaryRatio));
-    const innerPoints = generatePointsInCircle(innerCount, centerX, centerY, innerRadius);
+    // Получаем размер центральной формы
+    const shapeSize = window.cookie ? window.cookie.width * CONFIG.centerShape.sizePercent * 0.5 : 100;
+    const expansionFactor = 0.7; // Позволяем точкам заходить ВНУТРЬ формы
     
-    // 2. Граничные точки
-    const boundaryCount = Math.floor(seedCount * boundaryRatio);
-    const boundaryPoints = generateBoundaryPoints(centerX, centerY, cookieRadius, boundaryCount);
+    while (points.length < count && attempts < maxAttempts) {
+        const angle = Math.random() * 2 * Math.PI;
+        const r = Math.sqrt(Math.random()) * cookieRadius;
+        const x = centerX + r * Math.cos(angle);
+        const y = centerY + r * Math.sin(angle);
+        
+        // Простая проверка - разрешаем точки заходить за границу формы
+        const centerShapeType = CONFIG.centerShape.form;
+        let isValidPoint = false;
+        
+        if (centerShapeType === 1) {
+            // Круг - разрешаем точки ближе к центру
+            const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            isValidPoint = distFromCenter >= shapeSize * expansionFactor;
+        } else if (centerShapeType === 2) {
+            // Квадрат - разрешаем точки ближе к центру
+            const adjustedSize = shapeSize * expansionFactor;
+            isValidPoint = !(Math.abs(x - centerX) <= adjustedSize && Math.abs(y - centerY) <= adjustedSize);
+        } else if (centerShapeType === 3) {
+            // Треугольник - разрешаем точки заходить внутрь
+            // Просто проверяем, что не слишком близко к центру
+            const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            isValidPoint = distFromCenter >= shapeSize * expansionFactor;
+        } else {
+            isValidPoint = !isPointInCoreArea(x, y);
+        }
+        
+        if (isValidPoint) {
+            points.push([x, y]);
+        }
+        attempts++;
+    }
     
-    // 3. Фильтруем по центральной форме
-    const allPoints = [...innerPoints, ...boundaryPoints];
-    const validPoints = allPoints.filter(([x, y]) => 
-        isPointValidForVoronoi(x, y, centerX, centerY, cookieRadius)
-    );
+    return points;
+}
+
+// Генерация точек в любой области печенья (без ограничений по центральной форме)
+function generatePointsInCookieArea(centerX, centerY, cookieRadius, count) {
+    const points = [];
+    let attempts = 0;
+    const maxAttempts = count * 10;
     
-    // 4. Применяем релаксацию Ллойда
-    const bbox = [
+    while (points.length < count && attempts < maxAttempts) {
+        const angle = Math.random() * 2 * Math.PI;
+        const r = Math.sqrt(Math.random()) * cookieRadius;
+        const x = centerX + r * Math.cos(angle);
+        const y = centerY + r * Math.sin(angle);
+        
+        // Проверяем только, что точка внутри печенья
+        const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+        if (distFromCenter <= cookieRadius) {
+            points.push([x, y]);
+        }
+        attempts++;
+    }
+    
+    return points;
+}
+
+// Генерация точек внутри центральной формы
+function generatePointsInsideCenterShape(centerX, centerY, cookieRadius, count) {
+    const points = [];
+    let attempts = 0;
+    const maxAttempts = count * 10;
+    
+    while (points.length < count && attempts < maxAttempts) {
+        const angle = Math.random() * 2 * Math.PI;
+        const r = Math.sqrt(Math.random()) * cookieRadius;
+        const x = centerX + r * Math.cos(angle);
+        const y = centerY + r * Math.sin(angle);
+        
+        // Проверяем, что точка внутри центральной формы
+        if (isPointInCoreArea(x, y)) {
+            points.push([x, y]);
+        }
+        attempts++;
+    }
+    
+    return points;
+}
+
+// Создание двух отдельных диаграмм Вороного в разных областях
+function generateTwoVoronoiMeshes(centerX, centerY, cookieRadius) {
+    const config = CONFIG.cookie.pieces.voronoi;
+    const totalSeeds = config.seedCount;
+    
+    // Заполняем всю печенку точками - никаких ограничений!
+    const allPoints = generatePointsInCookieArea(centerX, centerY, cookieRadius, totalSeeds);
+    
+    // Добавляем граничные точки для четкой границы печенья
+    const cookieBoundaryPointsCount = Math.floor(totalSeeds * 0.2);
+    const cookieBoundaryPoints = generateCookieBoundaryPoints(centerX, centerY, cookieRadius, cookieBoundaryPointsCount);
+    
+    // Используем все точки - обрезка произойдет при создании кусочков
+    const enrichedOutsidePoints = [...allPoints, ...cookieBoundaryPoints];
+    // Для внутренних ячеек: пустая (временно не используется)
+    const enrichedInsidePoints = [];
+    
+    // Создаем отдельные bbox для каждой области
+    const cookieBbox = [
         centerX - cookieRadius, centerY - cookieRadius,
         centerX + cookieRadius, centerY + cookieRadius
     ];
     
-    const relaxedPoints = lloydRelaxation(validPoints, bbox, config.relaxationIterations);
+    // Применяем релаксацию для внешней области
+    const relaxedOutsidePoints = lloydRelaxation(enrichedOutsidePoints, cookieBbox, config.relaxationIterations);
     
-    // 5. Строим диаграмму Вороного
-    const delaunay = Delaunay.from(relaxedPoints);
-    const voronoi = delaunay.voronoi(bbox);
+    // Создаем диаграмму только для внешней области
+    const outsideDelaunay = Delaunay.from(relaxedOutsidePoints);
+    const outsideVoronoi = outsideDelaunay.voronoi(cookieBbox);
+    
+    // Заглушка для внутренней области
+    const relaxedInsidePoints = [];
+    const insideDelaunay = null;
+    const insideVoronoi = null;
     
     if (isDev) {
-        console.log(`🔹 Создано ${relaxedPoints.length} точек для диаграммы Вороного`);
-        console.log(`🔹 Внутренние точки: ${innerPoints.length}, граничные: ${boundaryPoints.length}`);
+        console.log(`🔹 Создано ${relaxedOutsidePoints.length} точек для заполнения всей печенки`);
+        console.log(`   └─ ${allPoints.length} точек по всей печенке + ${cookieBoundaryPoints.length} граничных точек`);
+        console.log(`🔹 Обрезка по форме произойдет при создании кусочков`);
     }
     
-    return { points: relaxedPoints, delaunay, voronoi };
+    return {
+        outside: { points: relaxedOutsidePoints, delaunay: outsideDelaunay, voronoi: outsideVoronoi },
+        inside: { points: relaxedInsidePoints, delaunay: insideDelaunay, voronoi: insideVoronoi }
+    };
 }
 
 // Пересечение отрезка с окружностью
@@ -1296,7 +1473,7 @@ function lineCircleIntersection(x1, y1, x2, y2, centerX, centerY, radius) {
 
 // Точная обрезка полигона по окружности (алгоритм Sutherland-Hodgman)
 function clipPolygonToCircle(polygon, centerX, centerY, radius) {
-    if (!polygon || polygon.length < 6) return [];
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
     
     const vertices = [];
     for (let i = 0; i < polygon.length; i += 2) {
@@ -1304,6 +1481,7 @@ function clipPolygonToCircle(polygon, centerX, centerY, radius) {
     }
     
     const clippedVertices = [];
+    let wasClipped = false;
     
     for (let i = 0; i < vertices.length; i++) {
         const current = vertices[i];
@@ -1325,6 +1503,7 @@ function clipPolygonToCircle(polygon, centerX, centerY, radius) {
             );
             if (intersections && intersections.length > 0) {
                 clippedVertices.push({ x: intersections[0].x, y: intersections[0].y });
+                wasClipped = true;
             }
         } else if (!currentInside && nextInside) {
             // Текущая снаружи, следующая внутри - добавляем пересечение и следующую
@@ -1333,10 +1512,21 @@ function clipPolygonToCircle(polygon, centerX, centerY, radius) {
             );
             if (intersections && intersections.length > 0) {
                 clippedVertices.push({ x: intersections[0].x, y: intersections[0].y });
+                wasClipped = true;
             }
             clippedVertices.push(next);
+        } else if (!currentInside && !nextInside) {
+            // Обе снаружи - проверяем, пересекает ли отрезок окружность
+            const intersections = lineCircleIntersection(
+                current.x, current.y, next.x, next.y, centerX, centerY, radius
+            );
+            if (intersections && intersections.length === 2) {
+                // Отрезок пересекает окружность в двух точках
+                clippedVertices.push({ x: intersections[0].x, y: intersections[0].y });
+                clippedVertices.push({ x: intersections[1].x, y: intersections[1].y });
+                wasClipped = true;
+            }
         }
-        // Если обе снаружи - ничего не добавляем
     }
     
     // Конвертируем обратно в массив координат
@@ -1345,11 +1535,337 @@ function clipPolygonToCircle(polygon, centerX, centerY, radius) {
         result.push(vertex.x, vertex.y);
     }
     
-    return result;
+    return { vertices: result, wasClipped };
 }
 
-// Создание кусочка из ячейки Вороного
-function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, centerY, cookieRadius) {
+// Инверсное клиппирование - исключаем внутреннюю область круга
+function clipPolygonToCircleInverse(polygon, centerX, centerY, radius) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    const vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    const clippedVertices = [];
+    let wasClipped = false;
+    
+    for (let i = 0; i < vertices.length; i++) {
+        const current = vertices[i];
+        const next = vertices[(i + 1) % vertices.length];
+        
+        const currentDist = Math.sqrt((current.x - centerX) ** 2 + (current.y - centerY) ** 2);
+        const nextDist = Math.sqrt((next.x - centerX) ** 2 + (next.y - centerY) ** 2);
+        
+        const currentOutside = currentDist >= radius;
+        const nextOutside = nextDist >= radius;
+        
+        if (currentOutside && nextOutside) {
+            // Обе точки снаружи - добавляем следующую
+            clippedVertices.push(next);
+        } else if (currentOutside && !nextOutside) {
+            // Текущая снаружи, следующая внутри - добавляем пересечение
+            const intersections = lineCircleIntersection(
+                current.x, current.y, next.x, next.y, centerX, centerY, radius
+            );
+            if (intersections && intersections.length > 0) {
+                clippedVertices.push({ x: intersections[0].x, y: intersections[0].y });
+                wasClipped = true;
+            }
+        } else if (!currentOutside && nextOutside) {
+            // Текущая внутри, следующая снаружи - добавляем пересечение и следующую
+            const intersections = lineCircleIntersection(
+                current.x, current.y, next.x, next.y, centerX, centerY, radius
+            );
+            if (intersections && intersections.length > 0) {
+                clippedVertices.push({ x: intersections[0].x, y: intersections[0].y });
+                wasClipped = true;
+            }
+            clippedVertices.push(next);
+        }
+        // Если обе внутри - пропускаем
+    }
+    
+    // Конвертируем обратно в массив координат
+    const result = [];
+    for (const vertex of clippedVertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped };
+}
+
+// Точное клиппирование по квадрату (исключение внутренней области)
+function clipPolygonToSquareInverse(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    const vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    const clippedVertices = [];
+    let wasClipped = false;
+    
+    for (let i = 0; i < vertices.length; i++) {
+        const current = vertices[i];
+        const next = vertices[(i + 1) % vertices.length];
+        
+        const currentInside = (Math.abs(current.x - centerX) <= size && Math.abs(current.y - centerY) <= size);
+        const nextInside = (Math.abs(next.x - centerX) <= size && Math.abs(next.y - centerY) <= size);
+        
+        if (!currentInside && !nextInside) {
+            // Обе точки снаружи - добавляем следующую
+            clippedVertices.push(next);
+        } else if (!currentInside && nextInside) {
+            // Текущая снаружи, следующая внутри - добавляем пересечение
+            const intersection = getSquareIntersection(current, next, centerX, centerY, size);
+            if (intersection) {
+                clippedVertices.push(intersection);
+                wasClipped = true;
+            }
+        } else if (currentInside && !nextInside) {
+            // Текущая внутри, следующая снаружи - добавляем пересечение и следующую
+            const intersection = getSquareIntersection(current, next, centerX, centerY, size);
+            if (intersection) {
+                clippedVertices.push(intersection);
+                wasClipped = true;
+            }
+            clippedVertices.push(next);
+        }
+        // Если обе внутри - пропускаем
+    }
+    
+    // Конвертируем обратно в массив координат
+    const result = [];
+    for (const vertex of clippedVertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped };
+}
+
+// Находим пересечение отрезка с квадратом
+function getSquareIntersection(p1, p2, centerX, centerY, size) {
+    const left = centerX - size;
+    const right = centerX + size;
+    const top = centerY - size;
+    const bottom = centerY + size;
+    
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    
+    // Проверяем пересечение с каждой стороной квадрата
+    const intersections = [];
+    
+    // Левая граница
+    if (dx !== 0) {
+        const t = (left - p1.x) / dx;
+        if (t >= 0 && t <= 1) {
+            const y = p1.y + t * dy;
+            if (y >= top && y <= bottom) {
+                intersections.push({ x: left, y: y });
+            }
+        }
+    }
+    
+    // Правая граница
+    if (dx !== 0) {
+        const t = (right - p1.x) / dx;
+        if (t >= 0 && t <= 1) {
+            const y = p1.y + t * dy;
+            if (y >= top && y <= bottom) {
+                intersections.push({ x: right, y: y });
+            }
+        }
+    }
+    
+    // Верхняя граница
+    if (dy !== 0) {
+        const t = (top - p1.y) / dy;
+        if (t >= 0 && t <= 1) {
+            const x = p1.x + t * dx;
+            if (x >= left && x <= right) {
+                intersections.push({ x: x, y: top });
+            }
+        }
+    }
+    
+    // Нижняя граница
+    if (dy !== 0) {
+        const t = (bottom - p1.y) / dy;
+        if (t >= 0 && t <= 1) {
+            const x = p1.x + t * dx;
+            if (x >= left && x <= right) {
+                intersections.push({ x: x, y: bottom });
+            }
+        }
+    }
+    
+    return intersections.length > 0 ? intersections[0] : null;
+}
+
+// Точное клиппирование по треугольнику (исключение внутренней области)
+function clipPolygonToTriangleInverse(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    // Для треугольника пока используем простую фильтрацию
+    // Можно добавить точное клиппирование позже
+    const result = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        const x = polygon[i];
+        const y = polygon[i + 1];
+        
+        if (!isPointInCoreArea(x, y)) {
+            result.push(x, y);
+        }
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Разрезание ячейки по границе формы на внешнюю и внутреннюю части
+function splitCellByShapeBoundary(cellVertices, centerX, centerY, cookieRadius) {
+    // Получаем размер центральной формы
+    const shapeSize = window.cookie ? window.cookie.width * CONFIG.centerShape.sizePercent * 0.5 : 100;
+    const centerShapeType = CONFIG.centerShape.form;
+    
+    let outsidePart = null;
+    let insidePart = null;
+    
+    if (centerShapeType === 1) {
+        // Круг
+        outsidePart = clipPolygonToCircleInverse(cellVertices, centerX, centerY, shapeSize).vertices;
+        insidePart = clipPolygonToCircle(cellVertices, centerX, centerY, shapeSize).vertices;
+    } else if (centerShapeType === 2) {
+        // Квадрат
+        outsidePart = clipPolygonToSquareInverse(cellVertices, centerX, centerY, shapeSize).vertices;
+        insidePart = clipPolygonToSquare(cellVertices, centerX, centerY, shapeSize).vertices;
+    } else if (centerShapeType === 3) {
+        // Треугольник
+        outsidePart = clipPolygonToTriangleInverse(cellVertices, centerX, centerY, shapeSize).vertices;
+        insidePart = clipPolygonToTriangle(cellVertices, centerX, centerY, shapeSize).vertices;
+    } else {
+        // Fallback - оставляем как есть
+        outsidePart = cellVertices;
+        insidePart = null;
+    }
+    
+    return { outsidePart, insidePart };
+}
+
+// Клиппирование полигона по квадрату (включение внутренней области)
+function clipPolygonToSquare(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    const vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    const clippedVertices = [];
+    let wasClipped = false;
+    
+    for (let i = 0; i < vertices.length; i++) {
+        const current = vertices[i];
+        const next = vertices[(i + 1) % vertices.length];
+        
+        const currentInside = (Math.abs(current.x - centerX) <= size && Math.abs(current.y - centerY) <= size);
+        const nextInside = (Math.abs(next.x - centerX) <= size && Math.abs(next.y - centerY) <= size);
+        
+        if (currentInside && nextInside) {
+            // Обе точки внутри - добавляем следующую
+            clippedVertices.push(next);
+        } else if (currentInside && !nextInside) {
+            // Текущая внутри, следующая снаружи - добавляем пересечение
+            const intersection = getSquareIntersection(current, next, centerX, centerY, size);
+            if (intersection) {
+                clippedVertices.push(intersection);
+                wasClipped = true;
+            }
+        } else if (!currentInside && nextInside) {
+            // Текущая снаружи, следующая внутри - добавляем пересечение и следующую
+            const intersection = getSquareIntersection(current, next, centerX, centerY, size);
+            if (intersection) {
+                clippedVertices.push(intersection);
+                wasClipped = true;
+            }
+            clippedVertices.push(next);
+        }
+        // Если обе снаружи - пропускаем
+    }
+    
+    // Конвертируем обратно в массив координат
+    const result = [];
+    for (const vertex of clippedVertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped };
+}
+
+// Клиппирование полигона по треугольнику (включение внутренней области)
+function clipPolygonToTriangle(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    // Простая фильтрация - оставляем только вершины внутри треугольника
+    const result = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        const x = polygon[i];
+        const y = polygon[i + 1];
+        
+        if (isPointInCoreArea(x, y)) {
+            result.push(x, y);
+        }
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Клиппирование полигона по центральной форме (исключение внутренней области)
+function clipPolygonByCenterShape(polygon, centerX, centerY, cookieRadius) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    // Сначала обрезаем по границе печенья
+    const { vertices: cookieClipped, wasClipped: cookieWasClipped } = clipPolygonToCircle(polygon, centerX, centerY, cookieRadius);
+    
+    if (cookieClipped.length < 6) return { vertices: [], wasClipped: false };
+    
+    // Получаем размер центральной формы
+    const shapeSize = window.cookie ? window.cookie.width * CONFIG.centerShape.sizePercent * 0.5 : 100;
+    const centerShapeType = CONFIG.centerShape.form;
+    
+    if (centerShapeType === 1) {
+        // Круг - используем инверсное клиппирование (исключаем внутреннюю область)
+        return clipPolygonToCircleInverse(cookieClipped, centerX, centerY, shapeSize);
+    } else if (centerShapeType === 2) {
+        // Квадрат - используем точное клиппирование по квадрату
+        return clipPolygonToSquareInverse(cookieClipped, centerX, centerY, shapeSize);
+    } else if (centerShapeType === 3) {
+        // Треугольник - используем точное клиппирование по треугольнику
+        return clipPolygonToTriangleInverse(cookieClipped, centerX, centerY, shapeSize);
+    } else {
+        // Fallback - простая фильтрация
+        const result = [];
+        for (let i = 0; i < cookieClipped.length; i += 2) {
+            const x = cookieClipped[i];
+            const y = cookieClipped[i + 1];
+            
+            if (!isPointInCoreArea(x, y)) {
+                result.push(x, y);
+            }
+        }
+        
+        if (result.length < 6) {
+            return { vertices: [], wasClipped: true };
+        }
+        
+        return { vertices: result, wasClipped: cookieWasClipped || result.length !== cookieClipped.length };
+    }
+}
+
+// Создание кусочка из ячейки Вороного (упрощенная версия)
+function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, centerY, cookieRadius, isInCenterShape = false) {
     if (!cellPolygon || cellPolygon.length < 3) return null;
     
     // Конвертируем cellPolygon в массив координат для клиппирования
@@ -1358,8 +1874,15 @@ function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, 
         cellVertices.push(x, y);
     }
     
-    // Точно обрезаем полигон по границе печенья
-    const vertices = clipPolygonToCircle(cellVertices, centerX, centerY, cookieRadius);
+    // Обрезаем по границе печенья с небольшим запасом
+    const expandedCookieRadius = cookieRadius * 1.02; // Увеличиваем радиус на 2%
+    const cookieResult = clipPolygonToCircle(cellVertices, centerX, centerY, expandedCookieRadius);
+    
+    if (cookieResult.vertices.length < 6) return null;
+    
+    // Используем обрезку по печенью
+    let vertices = cookieResult.vertices;
+    let wasClipped = cookieResult.wasClipped;
     
     if (vertices.length < 6) return null; // Минимум 3 точки для полигона
     
@@ -1372,81 +1895,49 @@ function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, 
     cx /= (vertices.length / 2);
     cy /= (vertices.length / 2);
     
-    // Проверяем, находится ли кусочек внутри центральной формы
-    const isInCenterShape = isPointInCoreArea(cx, cy);
-    
-    // Определяем, является ли кусочек крайним
-    const distFromCenter = Math.sqrt((cx - centerX) ** 2 + (cy - centerY) ** 2);
-    const isEdgePiece = distFromCenter > cookieRadius * 0.8; // Крайние - в последних 20% радиуса
-    
     // Создаем спрайт с полной текстурой печеньки
     const cookieTexture = Assets.get('cookie');
-    if (!cookieTexture) {
-        console.error('Cookie texture not found');
-        return null;
-    }
+    if (!cookieTexture) return null;
     
     const textureSprite = new Sprite(cookieTexture);
-    
-    // Позиционируем спрайт так, чтобы он точно совпадал с оригинальной печенькой
     textureSprite.anchor.set(0.5);
     textureSprite.width = cookieSprite.width;
     textureSprite.height = cookieSprite.height;
-    textureSprite.x = cookieSprite.x;
-    textureSprite.y = cookieSprite.y;
     
     // Создаем маску из точно обрезанного полигона
     const mask = new Graphics();
+    if (vertices.length < 6) return null;
     
-    // Проверяем, что полигон валиден
-    if (vertices.length >= 6) {
-        mask.poly(vertices);
-        mask.fill({ color: 0xFFFFFF });
-        mask.x = 0;
-        mask.y = 0;
-        
-        // Применяем маску к спрайту
-        textureSprite.mask = mask;
-    } else {
-        console.warn(`Invalid polygon for cell ${cellIndex}:`, vertices);
-        return null;
-    }
-    
-    // Создаем контейнер для кусочка
+    // Создаем контейнер для кусочка с позицией в центре ячейки
     const pieceContainer = new Container();
     pieceContainer.x = cx;
     pieceContainer.y = cy;
     
-    // Смещаем элементы относительно позиции контейнера
+    // Спрайт смещается относительно контейнера
     textureSprite.x = cookieSprite.x - cx;
     textureSprite.y = cookieSprite.y - cy;
     
-    // Конвертируем vertices в локальные координаты
+    // Маска смещается относительно контейнера
     const localVertices = [];
     for (let i = 0; i < vertices.length; i += 2) {
         localVertices.push(vertices[i] - cx, vertices[i + 1] - cy);
     }
-    mask.clear();
+    
     mask.poly(localVertices);
     mask.fill({ color: 0xFFFFFF });
+    textureSprite.mask = mask;
     
     pieceContainer.addChild(textureSprite);
     pieceContainer.addChild(mask);
     
-    // Добавляем цветные оверлеи для отладки
-    if (CONFIG.dev.showColorOverlays) {
-        const overlay = new Graphics();
-        overlay.poly(localVertices);
-        
-        if (isInCenterShape) {
-            overlay.fill({ color: 0xFF69B4, alpha: 0.5 }); // Розовый для центральных
-        } else if (isEdgePiece) {
-            overlay.fill({ color: 0x0080FF, alpha: 0.3 }); // Синий для крайних
-        } else {
-            overlay.fill({ color: 0x00FF00, alpha: 0.2 }); // Зеленый для обычных
-        }
-        
-        pieceContainer.addChild(overlay);
+    // Добавляем границы ячеек для визуализации сетки
+    if (CONFIG.dev.showBorders) {
+        const border = new Graphics();
+        border.poly(localVertices);
+        // Все границы красные пока
+        const borderColor = 0xFF0000;
+        border.stroke({ color: borderColor, width: 1, alpha: 0.8 });
+        pieceContainer.addChild(border);
     }
     
     // Убираем интерактивность контейнера
@@ -1480,39 +1971,158 @@ function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, 
         vertices: vertices, // Для поиска соседей
         isPainted: false,
         isInCenterShape: isInCenterShape,
-        isEdgePiece: isEdgePiece,
-        isEdgeOfCenterShape: false // Будет установлено позже
+        isEdgePiece: false, // Упрощено
+        isEdgeOfCenterShape: false // Упрощено
     };
 }
 
-// Генерация кусочков из диаграммы Вороного
+// Создание кусочка из готовых вершин (для разрезанных ячеек)
+function createVoronoiPieceFromVertices(app, cookieSprite, cellIndex, vertices, centerX, centerY, cookieRadius, isInCenterShape = false) {
+    if (!vertices || vertices.length < 6) return null;
+    
+    // Используем готовые вершины без дополнительной обрезки
+    const finalVertices = vertices;
+    
+    if (finalVertices.length < 6) return null;
+    
+    // Вычисляем центр ячейки
+    let cx = 0, cy = 0;
+    for (let i = 0; i < finalVertices.length; i += 2) {
+        cx += finalVertices[i];
+        cy += finalVertices[i + 1];
+    }
+    cx /= (finalVertices.length / 2);
+    cy /= (finalVertices.length / 2);
+    
+    // Создаем спрайт с полной текстурой печеньки
+    const cookieTexture = Assets.get('cookie');
+    if (!cookieTexture) return null;
+    
+    const textureSprite = new Sprite(cookieTexture);
+    textureSprite.anchor.set(0.5);
+    textureSprite.width = cookieSprite.width;
+    textureSprite.height = cookieSprite.height;
+    
+    // Создаем маску из готовых вершин
+    const mask = new Graphics();
+    
+    // Создаем контейнер для кусочка с позицией в центре ячейки
+    const pieceContainer = new Container();
+    pieceContainer.x = cx;
+    pieceContainer.y = cy;
+    
+    // Спрайт смещается относительно контейнера
+    textureSprite.x = cookieSprite.x - cx;
+    textureSprite.y = cookieSprite.y - cy;
+    
+    // Маска смещается относительно контейнера
+    const localVertices = [];
+    for (let i = 0; i < finalVertices.length; i += 2) {
+        localVertices.push(finalVertices[i] - cx, finalVertices[i + 1] - cy);
+    }
+    
+    mask.poly(localVertices);
+    mask.fill({ color: 0xFFFFFF });
+    textureSprite.mask = mask;
+    
+    pieceContainer.addChild(textureSprite);
+    pieceContainer.addChild(mask);
+    
+    // Добавляем границы ячеек для визуализации сетки
+    if (CONFIG.dev.showBorders) {
+        const border = new Graphics();
+        border.poly(localVertices);
+        // Все границы красные пока
+        const borderColor = 0xFF0000;
+        border.stroke({ color: borderColor, width: 1, alpha: 0.8 });
+        pieceContainer.addChild(border);
+    }
+    
+    // Убираем интерактивность контейнера
+    pieceContainer.eventMode = 'none';
+    
+    // Добавляем на сцену
+    app.stage.addChild(pieceContainer);
+    
+    // Вычисляем эквивалентный радиус для совместимости
+    const area = Math.abs(finalVertices.reduce((sum, val, i) => {
+        if (i % 2 === 0) {
+            const x1 = finalVertices[i];
+            const y1 = finalVertices[i + 1];
+            const x2 = finalVertices[(i + 2) % finalVertices.length];
+            const y2 = finalVertices[(i + 3) % finalVertices.length];
+            return sum + (x1 * y2 - x2 * y1);
+        }
+        return sum;
+    }, 0) / 2);
+    const equivalentRadius = Math.sqrt(area / Math.PI);
+    
+    return {
+        id: `voronoi_piece_${cellIndex}`,
+        container: pieceContainer,
+        x: cx,
+        y: cy,
+        radius: equivalentRadius,
+        isPainted: false,
+        isInCenterShape: isInCenterShape,
+        isEdgeOfCenterShape: false
+    };
+}
+
+// Генерация кусочков из двух диаграмм Вороного
 function generateVoronoiPieces(app, cookieSprite) {
     const cookieRadius = cookieSprite.width / 2;
     const centerX = cookieSprite.x;
     const centerY = cookieSprite.y;
     
-    // Генерируем диаграмму Вороного
-    const { points, delaunay, voronoi } = generateVoronoiWithBoundaries(centerX, centerY, cookieRadius);
+    // Генерируем две отдельные диаграммы Вороного
+    const { outside, inside } = generateTwoVoronoiMeshes(centerX, centerY, cookieRadius);
     
     const pieces = [];
     
-    // Создаем кусочки из ячеек
-    for (let i = 0; i < points.length; i++) {
-        const cellPolygon = voronoi.cellPolygon(i);
+    // Создаем кусочки из диаграммы
+    for (let i = 0; i < outside.points.length; i++) {
+        const cellPolygon = outside.voronoi.cellPolygon(i);
         
         if (cellPolygon && cellPolygon.length >= 3) {
-            const piece = createVoronoiPiece(app, cookieSprite, i, cellPolygon, centerX, centerY, cookieRadius);
+            // Создаем кусочек обычным способом
+            const piece = createVoronoiPiece(app, cookieSprite, `cell_${i}`, cellPolygon, centerX, centerY, cookieRadius, false);
             if (piece) {
                 pieces.push(piece);
             }
         }
     }
     
-    // Определяем краевые кусочки центральной формы
-    markEdgeOfCenterShapePieces(pieces);
+    // Создаем кусочки из внутренней диаграммы (внутри центральной формы) - ВРЕМЕННО СКРЫТО
+    // for (let i = 0; i < inside.points.length; i++) {
+    //     const cellPolygon = inside.voronoi.cellPolygon(i);
+    //     
+    //     if (cellPolygon && cellPolygon.length >= 3) {
+    //         // Проверяем, что центр ячейки действительно внутри центральной формы
+    //         const [seedX, seedY] = inside.points[i];
+    //         if (isPointInCoreArea(seedX, seedY)) {
+    //             const piece = createVoronoiPiece(app, cookieSprite, `inside_${i}`, cellPolygon, centerX, centerY, cookieRadius, true);
+    //             if (piece) {
+    //                 pieces.push(piece);
+    //             }
+    //         }
+    //     }
+    // }
+    
+    // Определяем краевые кусочки центральной формы (упрощенно)
+    pieces.forEach(piece => {
+        if (piece.isInCenterShape) {
+            // Проверяем, близко ли к границе центральной формы
+            const distFromCenter = Math.sqrt((piece.x - centerX) ** 2 + (piece.y - centerY) ** 2);
+            const coreAreaSize = cookieSprite.width * CONFIG.centerShape.sizePercent * 0.5;
+            piece.isEdgeOfCenterShape = distFromCenter > coreAreaSize * 0.8;
+        }
+    });
     
     if (isDev) {
-        console.log(`✅ Создано ${pieces.length} кусочков из диаграммы Вороного`);
+        console.log(`✅ Создано ${pieces.length} кусочков для полного покрытия области между печеньем и формой`);
+        console.log(`🔹 Внешние кусочки: ${outside.points.length}`);
+        console.log(`🔹 Внутренние кусочки: временно отключены`);
     }
     
     return pieces;
