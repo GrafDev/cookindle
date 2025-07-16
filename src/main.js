@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Texture, BlurFilter, Container } from 'pixi.js';
+import { Application, Assets, Sprite, Graphics, Texture, BlurFilter, Container, FillGradient } from 'pixi.js';
 import { CONFIG } from './config.js';
 
 // Определяем режим разработки
@@ -438,7 +438,7 @@ function drawCrossPattern(graphics, x, y, size, color) {
 
 // Рисование центральной формы
 function drawCenterShape(graphics, x, y, shapeConfig) {
-    const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength } = shapeConfig;
+    const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength, secondBorder, borderRadius } = shapeConfig;
     
     
     const halfSize = size / 2;
@@ -462,7 +462,37 @@ function drawCenterShape(graphics, x, y, shapeConfig) {
                 drawDashedCircle(graphics, x, y, halfSize, dashLength, gapLength, color, lineWidth, alpha);
         }
     } else {
-        // Обычная сплошная линия
+        // Сначала рисуем вторую границу (под основной) если включена
+        if (secondBorder && secondBorder.enabled) {
+            const secondLineWidth = lineWidth + secondBorder.widthOffset;
+            const secondHalfSize = halfSize + (secondBorder.widthOffset / 2);
+            
+            switch (form) {
+                case 1: // Круг
+                    graphics.circle(x, y, secondHalfSize);
+                    graphics.stroke({ color: secondBorder.color, width: secondLineWidth, alpha: secondBorder.alpha });
+                    break;
+                    
+                case 2: // Квадрат
+                    const secondOffset = secondHalfSize;
+                    const secondSquareRadius = borderRadius ? borderRadius.square : 0;
+                    graphics.roundRect(x - secondOffset, y - secondOffset, size + secondBorder.widthOffset, size + secondBorder.widthOffset, secondSquareRadius);
+                    graphics.stroke({ color: secondBorder.color, width: secondLineWidth, alpha: secondBorder.alpha });
+                    break;
+                    
+                case 3: // Треугольник
+                    const secondTriangleRadius = borderRadius ? borderRadius.triangle : 0;
+                    drawRoundedTriangleShape(graphics, x, y, size + secondBorder.widthOffset, secondTriangleRadius);
+                    graphics.stroke({ color: secondBorder.color, width: secondLineWidth, alpha: secondBorder.alpha });
+                    break;
+                    
+                default:
+                    graphics.circle(x, y, secondHalfSize);
+                    graphics.stroke({ color: secondBorder.color, width: secondLineWidth, alpha: secondBorder.alpha });
+            }
+        }
+        
+        // Затем рисуем основную границу
         switch (form) {
             case 1: // Круг
                 graphics.circle(x, y, halfSize);
@@ -470,12 +500,14 @@ function drawCenterShape(graphics, x, y, shapeConfig) {
                 break;
                 
             case 2: // Квадрат
-                graphics.rect(x - halfSize, y - halfSize, size, size);
+                const squareRadius = borderRadius ? borderRadius.square : 0;
+                graphics.roundRect(x - halfSize, y - halfSize, size, size, squareRadius);
                 graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
                 break;
                 
             case 3: // Треугольник
-                drawTriangleShape(graphics, x, y, size);
+                const triangleRadius = borderRadius ? borderRadius.triangle : 0;
+                drawRoundedTriangleShape(graphics, x, y, size, triangleRadius);
                 graphics.stroke({ color: color, width: lineWidth, alpha: alpha });
                 break;
                 
@@ -499,6 +531,65 @@ function drawTriangleShape(graphics, x, y, size) {
     graphics.moveTo(x, y - (height - centroidOffsetY));           // Верхняя точка
     graphics.lineTo(x + halfBase, y + centroidOffsetY);           // Правая нижняя точка
     graphics.lineTo(x - halfBase, y + centroidOffsetY);           // Левая нижняя точка
+    graphics.closePath();
+}
+
+// Рисование закругленного треугольника
+function drawRoundedTriangleShape(graphics, x, y, size, radius) {
+    if (radius <= 0) {
+        // Если радиус 0 или меньше, рисуем обычный треугольник
+        drawTriangleShape(graphics, x, y, size);
+        return;
+    }
+    
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3;
+    
+    // Точки треугольника
+    const p1 = { x: x, y: y - (height - centroidOffsetY) };           // Верхняя точка
+    const p2 = { x: x + halfBase, y: y + centroidOffsetY };           // Правая нижняя точка
+    const p3 = { x: x - halfBase, y: y + centroidOffsetY };           // Левая нижняя точка
+    
+    // Рисуем закругленный треугольник используя arc
+    const points = [p1, p2, p3];
+    
+    // Начинаем с первой точки
+    graphics.moveTo(
+        points[0].x + radius * Math.cos(Math.atan2(points[2].y - points[0].y, points[2].x - points[0].x)),
+        points[0].y + radius * Math.sin(Math.atan2(points[2].y - points[0].y, points[2].x - points[0].x))
+    );
+    
+    // Рисуем стороны с закруглениями
+    for (let i = 0; i < 3; i++) {
+        const current = points[i];
+        const next = points[(i + 1) % 3];
+        const prev = points[(i + 2) % 3];
+        
+        // Вычисляем направления от текущей точки к соседним
+        const toPrev = { x: prev.x - current.x, y: prev.y - current.y };
+        const toNext = { x: next.x - current.x, y: next.y - current.y };
+        
+        // Нормализуем векторы
+        const prevLen = Math.sqrt(toPrev.x * toPrev.x + toPrev.y * toPrev.y);
+        const nextLen = Math.sqrt(toNext.x * toNext.x + toNext.y * toNext.y);
+        
+        toPrev.x /= prevLen;
+        toPrev.y /= prevLen;
+        toNext.x /= nextLen;
+        toNext.y /= nextLen;
+        
+        // Точки начала и конца дуги
+        const arcStart = { x: current.x + radius * toPrev.x, y: current.y + radius * toPrev.y };
+        const arcEnd = { x: current.x + radius * toNext.x, y: current.y + radius * toNext.y };
+        
+        // Рисуем линию до начала дуги
+        graphics.lineTo(arcStart.x, arcStart.y);
+        
+        // Рисуем дугу (упрощенная версия - используем quadraticCurveTo)
+        graphics.quadraticCurveTo(current.x, current.y, arcEnd.x, arcEnd.y);
+    }
+    
     graphics.closePath();
 }
 
