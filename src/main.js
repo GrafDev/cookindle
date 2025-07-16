@@ -1724,6 +1724,110 @@ function clipPolygonToTriangleInverse(polygon, centerX, centerY, size) {
     return { vertices: result, wasClipped: result.length !== polygon.length };
 }
 
+// Разделение полигона линией формы на внутренние и внешние части
+function splitPolygonByShapeLine(vertices, centerX, centerY, cookieRadius) {
+    const shapeSize = window.cookie ? window.cookie.width * CONFIG.centerShape.sizePercent * 0.5 : 100;
+    const centerShapeType = CONFIG.centerShape.form;
+    
+    // Находим все точки пересечения линии формы с гранями полигона
+    const intersections = [];
+    const vertexStates = []; // true = внутри формы, false = снаружи
+    
+    // Определяем состояние каждой вершины
+    for (let i = 0; i < vertices.length; i += 2) {
+        const x = vertices[i];
+        const y = vertices[i + 1];
+        vertexStates.push(isPointInCoreArea(x, y));
+    }
+    
+    // Ищем пересечения на каждом ребре
+    for (let i = 0; i < vertexStates.length; i++) {
+        const j = (i + 1) % vertexStates.length;
+        const currentInside = vertexStates[i];
+        const nextInside = vertexStates[j];
+        
+        // Если состояния вершин разные, есть пересечение
+        if (currentInside !== nextInside) {
+            const x1 = vertices[i * 2];
+            const y1 = vertices[i * 2 + 1];
+            const x2 = vertices[j * 2];
+            const y2 = vertices[j * 2 + 1];
+            
+            const intersection = findShapeLineIntersection(x1, y1, x2, y2, centerX, centerY, shapeSize, centerShapeType);
+            if (intersection) {
+                intersections.push({
+                    x: intersection.x,
+                    y: intersection.y,
+                    edgeIndex: i,
+                    t: intersection.t
+                });
+            }
+        }
+    }
+    
+    // Если нет пересечений, весь полигон либо внутри, либо снаружи
+    if (intersections.length === 0) {
+        if (vertexStates[0]) {
+            return { insideParts: [vertices], outsideParts: [] };
+        } else {
+            return { insideParts: [], outsideParts: [vertices] };
+        }
+    }
+    
+    // Разделяем полигон на части по точкам пересечения
+    const insideParts = [];
+    const outsideParts = [];
+    
+    // Упрощенная версия - используем существующее клиппирование
+    if (centerShapeType === 1) {
+        const insidePart = clipPolygonToCircle(vertices, centerX, centerY, shapeSize).vertices;
+        const outsidePart = clipPolygonToCircleInverse(vertices, centerX, centerY, shapeSize).vertices;
+        
+        if (insidePart.length >= 6) insideParts.push(insidePart);
+        if (outsidePart.length >= 6) outsideParts.push(outsidePart);
+    } else if (centerShapeType === 2) {
+        const insidePart = clipPolygonToSquare(vertices, centerX, centerY, shapeSize).vertices;
+        const outsidePart = clipPolygonToSquareInverse(vertices, centerX, centerY, shapeSize).vertices;
+        
+        if (insidePart.length >= 6) insideParts.push(insidePart);
+        if (outsidePart.length >= 6) outsideParts.push(outsidePart);
+    } else {
+        // Для треугольника используем простую фильтрацию
+        const insideVertices = [];
+        const outsideVertices = [];
+        
+        for (let i = 0; i < vertices.length; i += 2) {
+            const x = vertices[i];
+            const y = vertices[i + 1];
+            
+            if (isPointInCoreArea(x, y)) {
+                insideVertices.push(x, y);
+            } else {
+                outsideVertices.push(x, y);
+            }
+        }
+        
+        if (insideVertices.length >= 6) insideParts.push(insideVertices);
+        if (outsideVertices.length >= 6) outsideParts.push(outsideVertices);
+    }
+    
+    return { insideParts, outsideParts };
+}
+
+// Находим пересечение отрезка с линией формы
+function findShapeLineIntersection(x1, y1, x2, y2, centerX, centerY, shapeSize, shapeType) {
+    if (shapeType === 1) {
+        // Круг
+        return lineCircleIntersection(x1, y1, x2, y2, centerX, centerY, shapeSize);
+    } else if (shapeType === 2) {
+        // Квадрат
+        return getSquareIntersection({x: x1, y: y1}, {x: x2, y: y2}, centerX, centerY, shapeSize);
+    } else {
+        // Треугольник - упрощенная версия
+        return null;
+    }
+}
+
 // Разрезание ячейки по границе формы на внешнюю и внутреннюю части
 function splitCellByShapeBoundary(cellVertices, centerX, centerY, cookieRadius) {
     // Получаем размер центральной формы
@@ -1930,12 +2034,20 @@ function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, 
     pieceContainer.addChild(textureSprite);
     pieceContainer.addChild(mask);
     
+    // Добавляем цветовое наложение для разделенных частей
+    const colorOverlay = new Graphics();
+    colorOverlay.poly(localVertices);
+    // Синий для внешних частей, желтый для внутренних
+    const overlayColor = isInCenterShape ? 0xFFFF00 : 0x0000FF; // Желтый : Синий
+    colorOverlay.fill({ color: overlayColor, alpha: 0.3 }); // Полупрозрачно
+    pieceContainer.addChild(colorOverlay);
+    
     // Добавляем границы ячеек для визуализации сетки
     if (CONFIG.dev.showBorders) {
         const border = new Graphics();
         border.poly(localVertices);
-        // Все границы красные пока
-        const borderColor = 0xFF0000;
+        // Красные границы для внешних, зеленые для внутренних
+        const borderColor = isInCenterShape ? 0x00FF00 : 0xFF0000;
         border.stroke({ color: borderColor, width: 1, alpha: 0.8 });
         pieceContainer.addChild(border);
     }
@@ -1980,8 +2092,14 @@ function createVoronoiPiece(app, cookieSprite, cellIndex, cellPolygon, centerX, 
 function createVoronoiPieceFromVertices(app, cookieSprite, cellIndex, vertices, centerX, centerY, cookieRadius, isInCenterShape = false) {
     if (!vertices || vertices.length < 6) return null;
     
-    // Используем готовые вершины без дополнительной обрезки
-    const finalVertices = vertices;
+    // Обрезаем по границе печенья с небольшим запасом
+    const expandedCookieRadius = cookieRadius * 1.02; // Увеличиваем радиус на 2%
+    const cookieResult = clipPolygonToCircle(vertices, centerX, centerY, expandedCookieRadius);
+    
+    if (cookieResult.vertices.length < 6) return null;
+    
+    // Используем обрезанные вершины
+    const finalVertices = cookieResult.vertices;
     
     if (finalVertices.length < 6) return null;
     
@@ -2028,12 +2146,20 @@ function createVoronoiPieceFromVertices(app, cookieSprite, cellIndex, vertices, 
     pieceContainer.addChild(textureSprite);
     pieceContainer.addChild(mask);
     
+    // Добавляем цветовое наложение для разделенных частей
+    const colorOverlay = new Graphics();
+    colorOverlay.poly(localVertices);
+    // Синий для внешних частей, желтый для внутренних
+    const overlayColor = isInCenterShape ? 0xFFFF00 : 0x0000FF; // Желтый : Синий
+    colorOverlay.fill({ color: overlayColor, alpha: 0.3 }); // Полупрозрачно
+    pieceContainer.addChild(colorOverlay);
+    
     // Добавляем границы ячеек для визуализации сетки
     if (CONFIG.dev.showBorders) {
         const border = new Graphics();
         border.poly(localVertices);
-        // Все границы красные пока
-        const borderColor = 0xFF0000;
+        // Красные границы для внешних, зеленые для внутренних
+        const borderColor = isInCenterShape ? 0x00FF00 : 0xFF0000;
         border.stroke({ color: borderColor, width: 1, alpha: 0.8 });
         pieceContainer.addChild(border);
     }
@@ -2080,16 +2206,39 @@ function generateVoronoiPieces(app, cookieSprite) {
     
     const pieces = [];
     
-    // Создаем кусочки из диаграммы
+    // Создаем кусочки из диаграммы, разделяя их линией формы
     for (let i = 0; i < outside.points.length; i++) {
         const cellPolygon = outside.voronoi.cellPolygon(i);
         
         if (cellPolygon && cellPolygon.length >= 3) {
-            // Создаем кусочек обычным способом
-            const piece = createVoronoiPiece(app, cookieSprite, `cell_${i}`, cellPolygon, centerX, centerY, cookieRadius, false);
-            if (piece) {
-                pieces.push(piece);
+            // Конвертируем cellPolygon в массив координат
+            const cellVertices = [];
+            for (const [x, y] of cellPolygon) {
+                cellVertices.push(x, y);
             }
+            
+            // Разделяем кусочек линией формы
+            const { insideParts, outsideParts } = splitPolygonByShapeLine(cellVertices, centerX, centerY, cookieRadius);
+            
+            // Создаем внешние части (красные)
+            outsideParts.forEach((part, idx) => {
+                if (part.length >= 6) {
+                    const piece = createVoronoiPieceFromVertices(app, cookieSprite, `outside_${i}_${idx}`, part, centerX, centerY, cookieRadius, false);
+                    if (piece) {
+                        pieces.push(piece);
+                    }
+                }
+            });
+            
+            // Создаем внутренние части (зеленые)
+            insideParts.forEach((part, idx) => {
+                if (part.length >= 6) {
+                    const piece = createVoronoiPieceFromVertices(app, cookieSprite, `inside_${i}_${idx}`, part, centerX, centerY, cookieRadius, true);
+                    if (piece) {
+                        pieces.push(piece);
+                    }
+                }
+            });
         }
     }
     
