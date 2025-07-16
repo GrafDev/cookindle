@@ -181,7 +181,7 @@ export const CONFIG = {
         // Показ кнопок смены формы (технические кнопки для тестирования)
         showShapeButtons: true,
         // Показ разделенных кусочков с цветовой маркировкой
-        showSplitPieces: true,
+        showSplitPieces: false,
         splitPieceColors: {
             inner: 0xFFFF00, // Желтый для внутренних частей (опасно!)
             outer: 0x00FF00, // Зеленый для внешних частей (можно кликать)

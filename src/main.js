@@ -698,28 +698,42 @@ function createCenterShapeWithPulse(x, y, cookieSize) {
     drawCenterShape(mainShape, 0, 0, shapeConfig);
     container.addChild(mainShape);
     
-    // Создаем пульсирующую обводку если включена
+    // Добавляем пунктирные выгрызы прямо здесь
     if (CONFIG.centerShape.pulse.enabled) {
-        const pulseShape = new Graphics();
+        console.log('🔥 Добавляем выгрызы к центральной форме!');
+        const holes = generateHolePositions(0, 0, shapeConfig);
+        console.log('🕳️ Найдено отверстий:', holes.length);
         
-        // Создаем точно такую же форму, но с другими параметрами
-        const pulseConfig = {
-            ...shapeConfig,
-            color: CONFIG.centerShape.pulse.colorFrom,
-            lineWidth: CONFIG.centerShape.pulse.lineWidth,
-            alpha: CONFIG.centerShape.pulse.alpha,
-            dashed: CONFIG.centerShape.pulse.dashed,
-            dashLength: CONFIG.centerShape.pulse.dashLength,
-            gapLength: CONFIG.centerShape.pulse.gapLength
-        };
+        holes.forEach(hole => {
+            // Создаем спрайт с текстурой bg.png
+            const bgTexture = Assets.get('background');
+            if (bgTexture) {
+                const bgSprite = new Sprite(bgTexture);
+                
+                // Центрируем спрайт
+                bgSprite.anchor.set(0.5);
+                bgSprite.x = hole.x;
+                bgSprite.y = hole.y;
+                
+                // Создаем круглую маску
+                const holeMask = new Graphics();
+                holeMask.circle(hole.x, hole.y, 2); // Еще меньший размер кружка
+                holeMask.fill(0xFFFFFF);
+                
+                // Применяем маску к спрайту
+                bgSprite.mask = holeMask;
+                
+                // Добавляем спрайт и маску в контейнер
+                container.addChild(bgSprite);
+                container.addChild(holeMask);
+                
+                console.log('🖼️ Создан круглый кусочек фона в:', hole.x, hole.y);
+            } else {
+                console.log('❌ Не найдена текстура background');
+            }
+        });
         
-        drawCenterShape(pulseShape, 0, 0, pulseConfig);
-        container.addChild(pulseShape);
-        
-        // Сохраняем ссылку на пульсирующую форму для анимации
-        container.pulseShape = pulseShape;
-        container.pulseStartTime = Date.now();
-        container.cookieSize = cookieSize;
+        console.log('✅ Выгрызы добавлены к центральной форме');
     }
     
     // Устанавливаем позицию контейнера
@@ -728,6 +742,119 @@ function createCenterShapeWithPulse(x, y, cookieSize) {
     
     return container;
 }
+
+
+// Генерация позиций отверстий по контуру формы
+function generateHolePositions(x, y, shapeConfig) {
+    const { form, size } = shapeConfig;
+    const halfSize = size / 2;
+    const holes = [];
+    
+    // Параметры перфорации
+    const holeSpacing = 15; // Расстояние между отверстиями
+    
+    switch (form) {
+        case 1: // Круг
+            const circumference = 2 * Math.PI * halfSize;
+            const holeCount = Math.floor(circumference / holeSpacing);
+            
+            for (let i = 0; i < holeCount; i++) {
+                const angle = (i / holeCount) * 2 * Math.PI;
+                const holeX = x + Math.cos(angle) * halfSize;
+                const holeY = y + Math.sin(angle) * halfSize;
+                holes.push({ x: holeX, y: holeY });
+            }
+            break;
+            
+        case 2: // Квадрат
+            const perimeter = 4 * size;
+            const squareHoleCount = Math.floor(perimeter / holeSpacing);
+            
+            for (let i = 0; i < squareHoleCount; i++) {
+                const progress = i / squareHoleCount;
+                let holeX, holeY;
+                
+                if (progress < 0.25) {
+                    // Верхняя сторона
+                    holeX = x + (progress * 4 - 0.5) * size;
+                    holeY = y - halfSize;
+                } else if (progress < 0.5) {
+                    // Правая сторона
+                    holeX = x + halfSize;
+                    holeY = y + ((progress - 0.25) * 4 - 0.5) * size;
+                } else if (progress < 0.75) {
+                    // Нижняя сторона
+                    holeX = x + (0.5 - (progress - 0.5) * 4) * size;
+                    holeY = y + halfSize;
+                } else {
+                    // Левая сторона
+                    holeX = x - halfSize;
+                    holeY = y + (0.5 - (progress - 0.75) * 4) * size;
+                }
+                
+                holes.push({ x: holeX, y: holeY });
+            }
+            break;
+            
+        case 3: // Треугольник (исправленная геометрия)
+            const triangleHeight = halfSize * Math.sqrt(3);
+            const trianglePerimeter = 3 * size;
+            const triangleHoleCount = Math.floor(trianglePerimeter / holeSpacing);
+            
+            for (let i = 0; i < triangleHoleCount; i++) {
+                const progress = i / triangleHoleCount;
+                let holeX, holeY;
+                
+                if (progress < 1/3) {
+                    // Нижняя сторона (горизонтальная)
+                    const t = progress * 3;
+                    holeX = x + (t - 0.5) * size;
+                    holeY = y + triangleHeight / 2;
+                } else if (progress < 2/3) {
+                    // Левая сторона
+                    const t = (progress - 1/3) * 3;
+                    holeX = x - halfSize + t * halfSize;
+                    holeY = y + triangleHeight / 2 - t * triangleHeight;
+                } else {
+                    // Правая сторона
+                    const t = (progress - 2/3) * 3;
+                    holeX = x + t * halfSize;
+                    holeY = y - triangleHeight / 2 + t * triangleHeight;
+                }
+                
+                holes.push({ x: holeX, y: holeY });
+            }
+            break;
+    }
+    
+    return holes;
+}
+
+// Добавление пунктирных "отверстий" которые берут цвет фона
+function addPerforatedHoles(container, x, y, shapeConfig) {
+    console.log('🔥 addPerforatedHoles вызвана!', x, y, shapeConfig);
+    
+    const holes = generateHolePositions(x, y, shapeConfig);
+    console.log('🕳️ Найдено отверстий:', holes.length);
+    
+    if (holes.length === 0) {
+        console.log('❌ Нет отверстий для создания!');
+        return;
+    }
+    
+    // Рисуем кружочки цвета фона (прозрачные или цвет страницы)
+    holes.forEach(hole => {
+        console.log('⚪ Создаем "отверстие" в:', hole.x, hole.y);
+        const holeGraphics = new Graphics();
+        holeGraphics.circle(hole.x, hole.y, 4);
+        // Используем цвет фона страницы для имитации отверстий
+        holeGraphics.fill(0xF5F5F5); // Светло-серый цвет фона страницы
+        container.addChild(holeGraphics);
+    });
+    
+    console.log('✅ Прозрачные "отверстия" добавлены в контейнер');
+}
+
 
 // Создание текстуры через PixiJS Graphics
 function createPixiTexture() {
@@ -1206,7 +1333,7 @@ function generateSmallHexagons(app, cookieSprite) {
             // Проверяем, пересекается ли кусочек с границей центральной формы
             const intersectsBoundary = isHexagonIntersectingCenterBoundary(tempHex);
             
-            if (intersectsBoundary && CONFIG.dev.showSplitPieces) {
+            if (intersectsBoundary) {
                 // Вычисляем точки пересечения границы с кусочком
                 const intersections = calculateShapeBoundaryIntersections(tempHex);
                 
@@ -3338,13 +3465,14 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     const innerTextureSprite = new Sprite(cookieTexture);
     const outerTextureSprite = new Sprite(cookieTexture);
     
-    // Настраиваем спрайты
+    // Настраиваем спрайты - позиционируем их так, чтобы показать нужную часть печенья
     [innerTextureSprite, outerTextureSprite].forEach(sprite => {
         sprite.anchor.set(0.5);
         sprite.width = window.cookie.width;
         sprite.height = window.cookie.height;
-        sprite.x = 0;
-        sprite.y = 0;
+        // Смещаем спрайт так, чтобы точка (x,y) кусочка совпадала с соответствующей точкой на текстуре
+        sprite.x = window.cookie.x - x;
+        sprite.y = window.cookie.y - y;
     });
     
     // Применяем маски ПРАВИЛЬНО: внутренняя часть должна использовать внутреннюю маску
@@ -3360,52 +3488,57 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     innerContainer.addChild(innerTextureSprite);
     outerContainer.addChild(outerTextureSprite);
     
+    // Выгрызы уже есть в текстуре печенья, не нужно добавлять отдельно
+    
     // Добавляем цветные оверлеи ПОВЕРХ текстуры для видимости
     const innerOverlay = new Graphics();
     const outerOverlay = new Graphics();
     
-    // Создаем цветные оверлеи ПРАВИЛЬНО: внутренние вершины для внутренней части
-    if (masks.insideVertices && masks.insideVertices.length >= 3) {
-        const innerVertices = [];
-        for (const vertex of masks.insideVertices) {
-            innerVertices.push(vertex.x - x, vertex.y - y);
+    // Добавляем цветные оверлеи только если включена отладка
+    if (CONFIG.dev.showSplitPieces) {
+        // Создаем цветные оверлеи ПРАВИЛЬНО: внутренние вершины для внутренней части
+        if (masks.insideVertices && masks.insideVertices.length >= 3) {
+            const innerVertices = [];
+            for (const vertex of masks.insideVertices) {
+                innerVertices.push(vertex.x - x, vertex.y - y);
+            }
+            innerOverlay.poly(innerVertices);
+            innerOverlay.fill({ color: innerColor, alpha: 0.2 }); // Желтый для внутренней части
+            innerContainer.addChild(innerOverlay);
+            
+            if (CONFIG.dev.consoleLogging) {
+                console.log(`🟡 Создан желтый оверлей для внутренней части из ${masks.insideVertices.length} вершин`);
+            }
         }
-        innerOverlay.poly(innerVertices);
-        innerOverlay.fill({ color: innerColor, alpha: 0.8 }); // Желтый для внутренней части
-        innerContainer.addChild(innerOverlay);
         
-        if (CONFIG.dev.consoleLogging) {
-            console.log(`🟡 Создан желтый оверлей для внутренней части из ${masks.insideVertices.length} вершин`);
+        if (masks.outsideVertices && masks.outsideVertices.length >= 3) {
+            const outerVertices = [];
+            for (const vertex of masks.outsideVertices) {
+                outerVertices.push(vertex.x - x, vertex.y - y);
+            }
+            outerOverlay.poly(outerVertices);
+            outerOverlay.fill({ color: outerColor, alpha: 0.2 }); // Зеленый для внешней части
+            outerContainer.addChild(outerOverlay);
+            
+            if (CONFIG.dev.consoleLogging) {
+                console.log(`🟢 Создан зеленый оверлей для внешней части из ${masks.outsideVertices.length} вершин`);
+            }
         }
     }
     
-    if (masks.outsideVertices && masks.outsideVertices.length >= 3) {
-        const outerVertices = [];
-        for (const vertex of masks.outsideVertices) {
-            outerVertices.push(vertex.x - x, vertex.y - y);
-        }
-        outerOverlay.poly(outerVertices);
-        outerOverlay.fill({ color: outerColor, alpha: 0.8 }); // Зеленый для внешней части
-        outerContainer.addChild(outerOverlay);
-        
-        if (CONFIG.dev.consoleLogging) {
-            console.log(`🟢 Создан зеленый оверлей для внешней части из ${masks.outsideVertices.length} вершин`);
-        }
-    }
-    
-    // Добавляем границу между частями
-    const borderLine = new Graphics();
-    if (intersections.length >= 2) {
-        borderLine.moveTo(intersections[0].x - x, intersections[0].y - y);
-        for (let i = 1; i < intersections.length; i++) {
-            borderLine.lineTo(intersections[i].x - x, intersections[i].y - y);
-        }
-        borderLine.stroke({ color: 0x000000, width: 2, alpha: 0.8 });
-        
-        // Добавляем границу к обеим частям
-        innerContainer.addChild(borderLine.clone());
-        outerContainer.addChild(borderLine);
-    }
+    // Границу между частями убираем для естественного вида
+    // const borderLine = new Graphics();
+    // if (intersections.length >= 2) {
+    //     borderLine.moveTo(intersections[0].x - x, intersections[0].y - y);
+    //     for (let i = 1; i < intersections.length; i++) {
+    //         borderLine.lineTo(intersections[i].x - x, intersections[i].y - y);
+    //     }
+    //     borderLine.stroke({ color: 0x000000, width: 2, alpha: 0.8 });
+    //     
+    //     // Добавляем границу к обеим частям
+    //     innerContainer.addChild(borderLine.clone());
+    //     outerContainer.addChild(borderLine);
+    // }
     
     // Добавляем контейнеры на сцену
     window.app.stage.addChild(innerContainer);
