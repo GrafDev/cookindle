@@ -1724,6 +1724,179 @@ function clipPolygonToTriangleInverse(polygon, centerX, centerY, size) {
     return { vertices: result, wasClipped: result.length !== polygon.length };
 }
 
+// Точное клиппирование по квадрату (алгоритм Sutherland-Hodgman)
+function clipPolygonToSquareSutherlandHodgman(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    let vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    // Границы квадрата
+    const left = centerX - size;
+    const right = centerX + size;
+    const top = centerY - size;
+    const bottom = centerY + size;
+    
+    // Клиппирование по каждой стороне квадрата
+    vertices = clipByLine(vertices, left, top, left, bottom, true); // Левая сторона
+    vertices = clipByLine(vertices, left, bottom, right, bottom, true); // Нижняя сторона
+    vertices = clipByLine(vertices, right, bottom, right, top, true); // Правая сторона
+    vertices = clipByLine(vertices, right, top, left, top, true); // Верхняя сторона
+    
+    const result = [];
+    for (const vertex of vertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Инверсное клиппирование по квадрату
+function clipPolygonToSquareInverseSutherlandHodgman(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    let vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    // Границы квадрата
+    const left = centerX - size;
+    const right = centerX + size;
+    const top = centerY - size;
+    const bottom = centerY + size;
+    
+    // Инверсное клиппирование - исключаем внутреннюю область
+    vertices = clipByLine(vertices, left, top, left, bottom, false); // Левая сторона (снаружи)
+    vertices = clipByLine(vertices, left, bottom, right, bottom, false); // Нижняя сторона (снаружи)
+    vertices = clipByLine(vertices, right, bottom, right, top, false); // Правая сторона (снаружи)
+    vertices = clipByLine(vertices, right, top, left, top, false); // Верхняя сторона (снаружи)
+    
+    const result = [];
+    for (const vertex of vertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Точное клиппирование по треугольнику (алгоритм Sutherland-Hodgman)
+function clipPolygonToTriangleSutherlandHodgman(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    let vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    // Вершины равностороннего треугольника (те же координаты что и в drawTriangleShape)
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3; // Центроид равностороннего треугольника
+    
+    const p1 = { x: centerX, y: centerY - (height - centroidOffsetY) };     // Верхняя точка
+    const p2 = { x: centerX + halfBase, y: centerY + centroidOffsetY };     // Правая нижняя точка
+    const p3 = { x: centerX - halfBase, y: centerY + centroidOffsetY };     // Левая нижняя точка
+    
+    // Клиппирование по каждой стороне треугольника
+    vertices = clipByLine(vertices, p1.x, p1.y, p2.x, p2.y, true);
+    vertices = clipByLine(vertices, p2.x, p2.y, p3.x, p3.y, true);
+    vertices = clipByLine(vertices, p3.x, p3.y, p1.x, p1.y, true);
+    
+    const result = [];
+    for (const vertex of vertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Инверсное клиппирование по треугольнику
+function clipPolygonToTriangleInverseSutherlandHodgman(polygon, centerX, centerY, size) {
+    if (!polygon || polygon.length < 6) return { vertices: [], wasClipped: false };
+    
+    let vertices = [];
+    for (let i = 0; i < polygon.length; i += 2) {
+        vertices.push({ x: polygon[i], y: polygon[i + 1] });
+    }
+    
+    // Вершины равностороннего треугольника (те же координаты что и в drawTriangleShape)
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3; // Центроид равностороннего треугольника
+    
+    const p1 = { x: centerX, y: centerY - (height - centroidOffsetY) };     // Верхняя точка
+    const p2 = { x: centerX + halfBase, y: centerY + centroidOffsetY };     // Правая нижняя точка
+    const p3 = { x: centerX - halfBase, y: centerY + centroidOffsetY };     // Левая нижняя точка
+    
+    // Инверсное клиппирование по каждой стороне треугольника
+    vertices = clipByLine(vertices, p1.x, p1.y, p2.x, p2.y, false);
+    vertices = clipByLine(vertices, p2.x, p2.y, p3.x, p3.y, false);
+    vertices = clipByLine(vertices, p3.x, p3.y, p1.x, p1.y, false);
+    
+    const result = [];
+    for (const vertex of vertices) {
+        result.push(vertex.x, vertex.y);
+    }
+    
+    return { vertices: result, wasClipped: result.length !== polygon.length };
+}
+
+// Универсальная функция клиппирования по линии (алгоритм Sutherland-Hodgman)
+function clipByLine(vertices, x1, y1, x2, y2, inside) {
+    if (vertices.length === 0) return [];
+    
+    const result = [];
+    
+    for (let i = 0; i < vertices.length; i++) {
+        const current = vertices[i];
+        const next = vertices[(i + 1) % vertices.length];
+        
+        const currentSide = isPointOnSide(current.x, current.y, x1, y1, x2, y2);
+        const nextSide = isPointOnSide(next.x, next.y, x1, y1, x2, y2);
+        
+        const currentInside = inside ? currentSide >= 0 : currentSide < 0;
+        const nextInside = inside ? nextSide >= 0 : nextSide < 0;
+        
+        if (currentInside && nextInside) {
+            // Обе точки внутри
+            result.push(next);
+        } else if (currentInside && !nextInside) {
+            // Выходим - добавляем пересечение
+            const intersection = getLineIntersection(current.x, current.y, next.x, next.y, x1, y1, x2, y2);
+            if (intersection) result.push(intersection);
+        } else if (!currentInside && nextInside) {
+            // Входим - добавляем пересечение и следующую точку
+            const intersection = getLineIntersection(current.x, current.y, next.x, next.y, x1, y1, x2, y2);
+            if (intersection) result.push(intersection);
+            result.push(next);
+        }
+        // Если обе снаружи - ничего не добавляем
+    }
+    
+    return result;
+}
+
+// Определяет, с какой стороны от линии находится точка
+function isPointOnSide(px, py, x1, y1, x2, y2) {
+    return (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1);
+}
+
+// Находит пересечение двух отрезков
+function getLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(denom) < 1e-10) return null;
+    
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    
+    return {
+        x: x1 + t * (x2 - x1),
+        y: y1 + t * (y2 - y1)
+    };
+}
+
 // Разделение полигона линией формы на внутренние и внешние части
 function splitPolygonByShapeLine(vertices, centerX, centerY, cookieRadius) {
     const shapeSize = window.cookie ? window.cookie.width * CONFIG.centerShape.sizePercent * 0.5 : 100;
@@ -1778,37 +1951,28 @@ function splitPolygonByShapeLine(vertices, centerX, centerY, cookieRadius) {
     const insideParts = [];
     const outsideParts = [];
     
-    // Упрощенная версия - используем существующее клиппирование
+    // Используем точное клиппирование для всех форм
     if (centerShapeType === 1) {
+        // Круг
         const insidePart = clipPolygonToCircle(vertices, centerX, centerY, shapeSize).vertices;
         const outsidePart = clipPolygonToCircleInverse(vertices, centerX, centerY, shapeSize).vertices;
         
         if (insidePart.length >= 6) insideParts.push(insidePart);
         if (outsidePart.length >= 6) outsideParts.push(outsidePart);
     } else if (centerShapeType === 2) {
-        const insidePart = clipPolygonToSquare(vertices, centerX, centerY, shapeSize).vertices;
-        const outsidePart = clipPolygonToSquareInverse(vertices, centerX, centerY, shapeSize).vertices;
+        // Квадрат - используем алгоритм Sutherland-Hodgman (меняем местами для корректной принадлежности)
+        const insidePart = clipPolygonToSquareInverseSutherlandHodgman(vertices, centerX, centerY, shapeSize).vertices;
+        const outsidePart = clipPolygonToSquareSutherlandHodgman(vertices, centerX, centerY, shapeSize).vertices;
         
         if (insidePart.length >= 6) insideParts.push(insidePart);
         if (outsidePart.length >= 6) outsideParts.push(outsidePart);
-    } else {
-        // Для треугольника используем простую фильтрацию
-        const insideVertices = [];
-        const outsideVertices = [];
+    } else if (centerShapeType === 3) {
+        // Треугольник - используем алгоритм Sutherland-Hodgman
+        const insidePart = clipPolygonToTriangleSutherlandHodgman(vertices, centerX, centerY, shapeSize).vertices;
+        const outsidePart = clipPolygonToTriangleInverseSutherlandHodgman(vertices, centerX, centerY, shapeSize).vertices;
         
-        for (let i = 0; i < vertices.length; i += 2) {
-            const x = vertices[i];
-            const y = vertices[i + 1];
-            
-            if (isPointInCoreArea(x, y)) {
-                insideVertices.push(x, y);
-            } else {
-                outsideVertices.push(x, y);
-            }
-        }
-        
-        if (insideVertices.length >= 6) insideParts.push(insideVertices);
-        if (outsideVertices.length >= 6) outsideParts.push(outsideVertices);
+        if (insidePart.length >= 6) insideParts.push(insidePart);
+        if (outsidePart.length >= 6) outsideParts.push(outsidePart);
     }
     
     return { insideParts, outsideParts };
