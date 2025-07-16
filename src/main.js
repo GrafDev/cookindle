@@ -1090,6 +1090,25 @@ function generateSmallHexagons(app, cookieSprite) {
             hexContainer.addChild(blueOverlay);
         }
         
+        // Добавляем цветной оверлей для разделенных кусочков и отладочных цветов
+        if (CONFIG.dev.showSplitPieces && color !== 0x0000FF) {
+            const colorOverlay = new Graphics();
+            // Создаем вершины цветного оверлея
+            const overlayVertices = [];
+            for (let j = 0; j < sides; j++) {
+                const angle = (j * 2 * Math.PI) / sides + rotationOffset;
+                const vx = Math.cos(angle) * enlargedRadius;
+                const vy = Math.sin(angle) * enlargedRadius;
+                overlayVertices.push(vx, vy);
+            }
+            colorOverlay.poly(overlayVertices);
+            colorOverlay.fill({ color: color, alpha: 0.6 }); // Цвет с 60% прозрачности
+            colorOverlay.x = 0;
+            colorOverlay.y = 0;
+            
+            hexContainer.addChild(colorOverlay);
+        }
+        
         // Убираем обводку - оставляем только текстуру
         
         // Убираем интерактивность контейнера, так как обработка происходит через иглу
@@ -1171,27 +1190,90 @@ function generateSmallHexagons(app, cookieSprite) {
             // Определяем, является ли кусочек крайним (пересекается, но не полностью внутри)
             const isEdgePiece = !isInsideCookie && hasIntersection;
             
-            // Цвет в зависимости от типа кусочка
-            let color;
-            if (isEdgePiece) {
-                color = 0x0080FF; // Прозрачный синий для крайних кусочков
-            } else {
-                color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
-            }
-            
             // Поворот для каждого многоугольника (случайный или фиксированный)
             const rotation = CONFIG.cookie.pieces.randomRotation ? 
                 Math.random() * 2 * Math.PI : 
                 rotationOffset;
             
-            const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
+            // Создаем временный кусочек для проверки пересечений
+            const tempHex = {
+                x: x,
+                y: y,
+                radius: smallHexRadius,
+                id: hexId
+            };
             
-            // Добавляем кубические координаты для поиска соседей
-            hex.q = q;
-            hex.r = r;
-            hex.s = s;
+            // Проверяем, пересекается ли кусочек с границей центральной формы
+            const intersectsBoundary = isHexagonIntersectingCenterBoundary(tempHex);
             
-            hexagons.push(hex);
+            if (intersectsBoundary && CONFIG.dev.showSplitPieces) {
+                // Вычисляем точки пересечения границы с кусочком
+                const intersections = calculateShapeBoundaryIntersections(tempHex);
+                
+                if (intersections.length >= 2) {
+                    // Создаем разделенные части с отдельными масками
+                    const splitResult = createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEdgePiece);
+                    
+                    if (splitResult) {
+                        // Внутренняя часть
+                        splitResult.innerHex.q = q;
+                        splitResult.innerHex.r = r;
+                        splitResult.innerHex.s = s;
+                        splitResult.innerHex.isSplitPart = true;
+                        splitResult.innerHex.partType = 'inner';
+                        splitResult.innerHex.originalId = tempHex.id;
+                        hexagons.push(splitResult.innerHex);
+                        
+                        // Внешняя часть
+                        splitResult.outerHex.q = q;
+                        splitResult.outerHex.r = r;
+                        splitResult.outerHex.s = s;
+                        splitResult.outerHex.isSplitPart = true;
+                        splitResult.outerHex.partType = 'outer';
+                        splitResult.outerHex.originalId = tempHex.id;
+                        hexagons.push(splitResult.outerHex);
+                        
+                        hexId += 2; // Увеличиваем ID на 2 (для двух частей)
+                    }
+                } else {
+                    // Если недостаточно точек пересечения, создаем обычный кусочек
+                    const color = isInCenterShape ? CONFIG.dev.splitPieceColors.centerPiece : CONFIG.dev.splitPieceColors.regular;
+                    const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
+                    hex.q = q;
+                    hex.r = r;
+                    hex.s = s;
+                    hexagons.push(hex);
+                }
+            } else {
+                // Обычный кусочек без разделения
+                // Цвет в зависимости от типа кусочка
+                let color;
+                if (CONFIG.dev.showSplitPieces) {
+                    if (isEdgePiece) {
+                        color = CONFIG.dev.splitPieceColors.edgePiece;
+                    } else if (isInCenterShape) {
+                        color = CONFIG.dev.splitPieceColors.centerPiece;
+                    } else {
+                        color = CONFIG.dev.splitPieceColors.regular;
+                    }
+                } else {
+                    // Стандартные цвета без маркировки
+                    if (isEdgePiece) {
+                        color = 0x0080FF; // Прозрачный синий для крайних кусочков
+                    } else {
+                        color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
+                    }
+                }
+                
+                const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
+                
+                // Добавляем кубические координаты для поиска соседей
+                hex.q = q;
+                hex.r = r;
+                hex.s = s;
+                
+                hexagons.push(hex);
+            }
             
         }
     }
@@ -1338,6 +1420,25 @@ function findHexagonAtPoint(x, y) {
     // Проходим по всем шестиугольникам и ищем попадание
     for (const hexagon of smallHexagons) {
         if (isPointInHexagon(x, y, hexagon)) {
+            // Для разделенных кусочков проверяем попадание в правильную часть
+            if (hexagon.isSplitPart) {
+                const isInCenterArea = isPointInCoreArea(x, y);
+                
+                // Внутренние части - только если точка внутри центральной формы
+                if (hexagon.partType === 'inner' && isInCenterArea) {
+                    return hexagon;
+                }
+                
+                // Внешние части - только если точка снаружи центральной формы
+                if (hexagon.partType === 'outer' && !isInCenterArea) {
+                    return hexagon;
+                }
+                
+                // Если точка не в правильной области - пропускаем этот кусочек
+                continue;
+            }
+            
+            // Для обычных кусочков возвращаем как есть
             return hexagon;
         }
     }
@@ -1359,6 +1460,14 @@ function findHexagonNeighbors(targetHexagon, allHexagons) {
         );
         
         if (distance <= maxDistance) {
+            // Для разделенных кусочков с одинаковыми координатами исключаем пары inner/outer
+            if (targetHexagon.isSplitPart && hexagon.isSplitPart && 
+                targetHexagon.originalId === hexagon.originalId && 
+                distance < 0.1) {
+                // Пропускаем свою пару (inner/outer с одинаковыми координатами)
+                continue;
+            }
+            
             neighbors.push(hexagon);
         }
     }
@@ -1535,24 +1644,27 @@ function getHexagonsByRings(centerHex, allHexagons, maxCount) {
                 const neighborR = hex.r + dr;
                 const neighborS = hex.s + ds;
                 
-                // Ищем соседа в массиве всех кусочков
-                const neighbor = allHexagons.find(h => 
+                // Ищем соседей в массиве всех кусочков
+                const neighbors = allHexagons.filter(h => 
                     h.q === neighborQ && h.r === neighborR && h.s === neighborS
                 );
                 
-                if (neighbor && !added.has(neighbor.id) && !neighbor.isPainted) {
-                    // Проверяем, может ли кусочек выпасть (не является краевым центральной формы)
-                    const canFall = !neighbor.isEdgeOfCenterShape && 
-                                   !(neighbor.isInCenterShape && !neighbor.isEdgeOfCenterShape);
-                    
-                    if (canFall) {
-                        result.push(neighbor);
-                        added.add(neighbor.id);
-                        nextRing.push(neighbor);
+                // Для разделенных кусочков на одних координатах - выбираем только подходящие
+                for (const neighbor of neighbors) {
+                    if (neighbor && !added.has(neighbor.id) && !neighbor.isPainted) {
+                        // Проверяем, может ли кусочек выпасть (не является краевым центральной формы)
+                        const canFall = !neighbor.isEdgeOfCenterShape && 
+                                       !(neighbor.isInCenterShape && !neighbor.isEdgeOfCenterShape);
                         
-                        // Проверяем, достигли ли мы нужного количества
-                        if (result.length >= maxCount) {
-                            return result;
+                        if (canFall) {
+                            result.push(neighbor);
+                            added.add(neighbor.id);
+                            nextRing.push(neighbor);
+                            
+                            // Проверяем, достигли ли мы нужного количества
+                            if (result.length >= maxCount) {
+                                return result;
+                            }
                         }
                     }
                 }
@@ -1577,6 +1689,28 @@ function handleNeedlePaintingAtPoint() {
     
     const hexagon = findHexagonAtPoint(needleTipX, needleTipY);
     if (hexagon && !hexagon.isPainted) {
+        // Проверяем разделенные кусочки (внутренние части вызывают Game Over)
+        if (hexagon.isSplitPart && hexagon.partType === 'inner') {
+            if (isDev) {
+                console.log('🟡 Клик по внутренней части (желтая) - Game Over!');
+            }
+            // СРАЗУ устанавливаем флаг Game Over, чтобы заблокировать проверку победы
+            gameOverShown = true;
+            // Сначала рассыпаем всю печеньку, потом показываем Game Over
+            animateFullCookieCrumble(() => {
+                showGameOverModal();
+            });
+            return true;
+        }
+        
+        // Проверяем разделенные кусочки (внешние части безопасны)
+        if (hexagon.isSplitPart && hexagon.partType === 'outer') {
+            if (isDev) {
+                console.log('🟢 Клик по внешней части (зеленая) - безопасно!');
+            }
+            // Продолжаем обычную логику игры
+        }
+        
         // Проверяем, является ли кусочек центральным (внутри формы), но НЕ краевым
         if (hexagon.isInCenterShape && !hexagon.isEdgeOfCenterShape) {
             // СРАЗУ устанавливаем флаг Game Over, чтобы заблокировать проверку победы
@@ -2820,6 +2954,508 @@ function isPointInCoreArea(x, y) {
     }
 }
 
+// Проверка, пересекается ли кусочек с границей центральной формы
+function isHexagonIntersectingCenterBoundary(hexagon) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return false;
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    const centerShapeConfig = CONFIG.centerShape;
+    const coreSize = (cookieSprite.width * centerShapeConfig.sizePercent) / 2;
+    
+    // Получаем вершины шестиугольника
+    const vertices = [];
+    const sides = CONFIG.cookie.pieces.polygonSides;
+    const enlargedRadius = hexagon.radius * CONFIG.cookie.pieces.sizeMultiplier;
+    
+    for (let j = 0; j < sides; j++) {
+        const angle = (j * 2 * Math.PI) / sides;
+        const vx = hexagon.x + Math.cos(angle) * enlargedRadius;
+        const vy = hexagon.y + Math.sin(angle) * enlargedRadius;
+        vertices.push({ x: vx, y: vy });
+    }
+    
+    // Проверяем каждую вершину
+    let insideCount = 0;
+    let outsideCount = 0;
+    
+    for (const vertex of vertices) {
+        if (isPointInCoreArea(vertex.x, vertex.y)) {
+            insideCount++;
+        } else {
+            outsideCount++;
+        }
+    }
+    
+    // Кусочек пересекается с границей, если часть вершин внутри, часть снаружи
+    return insideCount > 0 && outsideCount > 0;
+}
+
+// Создание двух частей кусочка, разделенных границей центральной формы
+function createSplitHexagonParts(hexagon) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return null;
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    const centerShapeConfig = CONFIG.centerShape;
+    const coreSize = (cookieSprite.width * centerShapeConfig.sizePercent) / 2;
+    
+    // Получаем вершины шестиугольника
+    const vertices = [];
+    const sides = CONFIG.cookie.pieces.polygonSides;
+    const enlargedRadius = hexagon.radius * CONFIG.cookie.pieces.sizeMultiplier;
+    
+    for (let j = 0; j < sides; j++) {
+        const angle = (j * 2 * Math.PI) / sides;
+        const vx = hexagon.x + Math.cos(angle) * enlargedRadius;
+        const vy = hexagon.y + Math.sin(angle) * enlargedRadius;
+        vertices.push({ x: vx, y: vy });
+    }
+    
+    // Разделяем вершины на внутренние и внешние
+    const insideVertices = [];
+    const outsideVertices = [];
+    
+    for (const vertex of vertices) {
+        if (isPointInCoreArea(vertex.x, vertex.y)) {
+            insideVertices.push(vertex);
+        } else {
+            outsideVertices.push(vertex);
+        }
+    }
+    
+    // Создаем клонов кусочка для внутренней и внешней частей
+    const innerPart = { 
+        ...hexagon, 
+        id: hexagon.id + '_inner',
+        isSplitPart: true,
+        originalId: hexagon.id,
+        partType: 'inner'
+    };
+    
+    const outerPart = { 
+        ...hexagon, 
+        id: hexagon.id + '_outer',
+        isSplitPart: true,
+        originalId: hexagon.id,
+        partType: 'outer'
+    };
+    
+    return { innerPart, outerPart, insideVertices, outsideVertices };
+}
+
+// Вычисление точек пересечения границы центральной формы с кусочком
+function calculateShapeBoundaryIntersections(hexagon) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return [];
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    const centerShapeConfig = CONFIG.centerShape;
+    const coreSize = (cookieSprite.width * centerShapeConfig.sizePercent) / 2;
+    
+    // Получаем ребра шестиугольника
+    const vertices = [];
+    const sides = CONFIG.cookie.pieces.polygonSides;
+    const enlargedRadius = hexagon.radius * CONFIG.cookie.pieces.sizeMultiplier;
+    
+    for (let j = 0; j < sides; j++) {
+        const angle = (j * 2 * Math.PI) / sides;
+        const vx = hexagon.x + Math.cos(angle) * enlargedRadius;
+        const vy = hexagon.y + Math.sin(angle) * enlargedRadius;
+        vertices.push({ x: vx, y: vy });
+    }
+    
+    const intersections = [];
+    
+    // Проверяем каждое ребро шестиугольника на пересечение с границей формы
+    for (let i = 0; i < vertices.length; i++) {
+        const v1 = vertices[i];
+        const v2 = vertices[(i + 1) % vertices.length];
+        
+        let intersection = null;
+        
+        switch (centerShapeConfig.form) {
+            case 1: // Круг
+                intersection = findLineCircleIntersection(
+                    v1.x, v1.y, v2.x, v2.y,
+                    centerX, centerY, coreSize
+                );
+                break;
+                
+            case 2: // Квадрат
+                intersection = findLineSquareIntersection(
+                    v1.x, v1.y, v2.x, v2.y,
+                    centerX, centerY, coreSize
+                );
+                break;
+                
+            case 3: // Треугольник
+                intersection = findLineTriangleIntersection(
+                    v1.x, v1.y, v2.x, v2.y,
+                    centerX, centerY, coreSize * 2
+                );
+                break;
+        }
+        
+        if (intersection) {
+            intersections.push(...intersection);
+        }
+    }
+    
+    return intersections;
+}
+
+// Поиск пересечения линии с окружностью
+function findLineCircleIntersection(x1, y1, x2, y2, cx, cy, radius) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const fx = x1 - cx;
+    const fy = y1 - cy;
+    
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - radius * radius;
+    
+    const discriminant = b * b - 4 * a * c;
+    
+    if (discriminant < 0) return null;
+    
+    const intersections = [];
+    const sqrt_discriminant = Math.sqrt(discriminant);
+    
+    const t1 = (-b - sqrt_discriminant) / (2 * a);
+    const t2 = (-b + sqrt_discriminant) / (2 * a);
+    
+    if (t1 >= 0 && t1 <= 1) {
+        intersections.push({
+            x: x1 + t1 * dx,
+            y: y1 + t1 * dy
+        });
+    }
+    
+    if (t2 >= 0 && t2 <= 1 && t2 !== t1) {
+        intersections.push({
+            x: x1 + t2 * dx,
+            y: y1 + t2 * dy
+        });
+    }
+    
+    return intersections.length > 0 ? intersections : null;
+}
+
+// Поиск пересечения линии с квадратом
+function findLineSquareIntersection(x1, y1, x2, y2, cx, cy, halfSize) {
+    const intersections = [];
+    
+    // Границы квадрата
+    const left = cx - halfSize;
+    const right = cx + halfSize;
+    const top = cy - halfSize;
+    const bottom = cy + halfSize;
+    
+    // Проверяем пересечение с каждой стороной квадрата
+    const sides = [
+        { x1: left, y1: top, x2: right, y2: top },     // верх
+        { x1: right, y1: top, x2: right, y2: bottom }, // право
+        { x1: right, y1: bottom, x2: left, y2: bottom }, // низ
+        { x1: left, y1: bottom, x2: left, y2: top }    // лево
+    ];
+    
+    for (const side of sides) {
+        const intersection = findLineLineIntersection(
+            x1, y1, x2, y2,
+            side.x1, side.y1, side.x2, side.y2
+        );
+        if (intersection) {
+            intersections.push(intersection);
+        }
+    }
+    
+    return intersections.length > 0 ? intersections : null;
+}
+
+// Поиск пересечения линии с треугольником
+function findLineTriangleIntersection(x1, y1, x2, y2, cx, cy, size) {
+    const intersections = [];
+    
+    // Вершины треугольника
+    const halfSize = size / 2;
+    const height = halfSize * Math.sqrt(3);
+    
+    const vertices = [
+        { x: cx, y: cy - height / 2 },                    // верх
+        { x: cx - halfSize, y: cy + height / 2 },         // лево-низ
+        { x: cx + halfSize, y: cy + height / 2 }          // право-низ
+    ];
+    
+    // Проверяем пересечение с каждой стороной треугольника
+    for (let i = 0; i < 3; i++) {
+        const v1 = vertices[i];
+        const v2 = vertices[(i + 1) % 3];
+        
+        const intersection = findLineLineIntersection(
+            x1, y1, x2, y2,
+            v1.x, v1.y, v2.x, v2.y
+        );
+        
+        if (intersection) {
+            intersections.push(intersection);
+        }
+    }
+    
+    return intersections.length > 0 ? intersections : null;
+}
+
+// Поиск пересечения двух линий
+function findLineLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    
+    if (Math.abs(denom) < 1e-10) return null; // Параллельные линии
+    
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+    
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        return {
+            x: x1 + t * (x2 - x1),
+            y: y1 + t * (y2 - y1)
+        };
+    }
+    
+    return null;
+}
+
+// Создание отдельных масок для внутренней и внешней частей кусочка
+function createSplitMasks(hexagon, intersections) {
+    const cookieSprite = window.cookie;
+    if (!cookieSprite) return null;
+    
+    const centerX = cookieSprite.x;
+    const centerY = cookieSprite.y;
+    const centerShapeConfig = CONFIG.centerShape;
+    
+    // Получаем вершины шестиугольника
+    const vertices = [];
+    const sides = CONFIG.cookie.pieces.polygonSides;
+    const enlargedRadius = hexagon.radius * CONFIG.cookie.pieces.sizeMultiplier;
+    
+    for (let j = 0; j < sides; j++) {
+        const angle = (j * 2 * Math.PI) / sides;
+        const vx = hexagon.x + Math.cos(angle) * enlargedRadius;
+        const vy = hexagon.y + Math.sin(angle) * enlargedRadius;
+        vertices.push({ x: vx, y: vy });
+    }
+    
+    // Разделяем вершины на внутренние и внешние
+    const insideVertices = [];
+    const outsideVertices = [];
+    
+    for (const vertex of vertices) {
+        if (isPointInCoreArea(vertex.x, vertex.y)) {
+            insideVertices.push(vertex);
+        } else {
+            outsideVertices.push(vertex);
+        }
+    }
+    
+    if (CONFIG.dev.consoleLogging) {
+        console.log(`🔄 Разделение кусочка: внутренних вершин=${insideVertices.length}, внешних=${outsideVertices.length}`);
+    }
+    
+    // Добавляем точки пересечения к соответствующим массивам
+    for (const point of intersections) {
+        insideVertices.push(point);
+        outsideVertices.push(point);
+    }
+    
+    // Сортируем точки по углу относительно центра кусочка
+    const sortByAngle = (points) => {
+        return points.sort((a, b) => {
+            const angleA = Math.atan2(a.y - hexagon.y, a.x - hexagon.x);
+            const angleB = Math.atan2(b.y - hexagon.y, b.x - hexagon.x);
+            return angleA - angleB;
+        });
+    };
+    
+    const sortedInsideVertices = sortByAngle([...insideVertices]);
+    const sortedOutsideVertices = sortByAngle([...outsideVertices]);
+    
+    // Создаем маски
+    const innerMask = new Graphics();
+    const outerMask = new Graphics();
+    
+    // Создаем внутреннюю маску
+    if (sortedInsideVertices.length >= 3) {
+        const innerVertices = [];
+        for (const vertex of sortedInsideVertices) {
+            innerVertices.push(vertex.x - hexagon.x, vertex.y - hexagon.y);
+        }
+        innerMask.poly(innerVertices);
+        innerMask.fill(0xFFFFFF);
+    }
+    
+    // Создаем внешнюю маску
+    if (sortedOutsideVertices.length >= 3) {
+        const outerVertices = [];
+        for (const vertex of sortedOutsideVertices) {
+            outerVertices.push(vertex.x - hexagon.x, vertex.y - hexagon.y);
+        }
+        outerMask.poly(outerVertices);
+        outerMask.fill(0xFFFFFF);
+    }
+    
+    return {
+        innerMask,
+        outerMask,
+        insideVertices: sortedInsideVertices,
+        outsideVertices: sortedOutsideVertices
+    };
+}
+
+// Создание разделенных кусочков с отдельными масками
+function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEdgePiece) {
+    const masks = createSplitMasks(tempHex, intersections);
+    if (!masks) return null;
+    
+    const cookieTexture = Assets.get('cookie');
+    const innerColor = CONFIG.dev.splitPieceColors.inner;
+    const outerColor = CONFIG.dev.splitPieceColors.outer;
+    
+    // Создаем контейнер для внутренней части
+    const innerContainer = new Container();
+    innerContainer.x = x;
+    innerContainer.y = y;
+    
+    // Создаем контейнер для внешней части
+    const outerContainer = new Container();
+    outerContainer.x = x;
+    outerContainer.y = y;
+    
+    // Создаем спрайты с текстурой для обеих частей
+    const innerTextureSprite = new Sprite(cookieTexture);
+    const outerTextureSprite = new Sprite(cookieTexture);
+    
+    // Настраиваем спрайты
+    [innerTextureSprite, outerTextureSprite].forEach(sprite => {
+        sprite.anchor.set(0.5);
+        sprite.width = window.cookie.width;
+        sprite.height = window.cookie.height;
+        sprite.x = 0;
+        sprite.y = 0;
+    });
+    
+    // Применяем маски ПРАВИЛЬНО: внутренняя часть должна использовать внутреннюю маску
+    innerTextureSprite.mask = masks.innerMask;  // Внутренняя часть использует внутреннюю маску
+    outerTextureSprite.mask = masks.outerMask;  // Внешняя часть использует внешнюю маску
+    
+    // Добавляем спрайты и маски к контейнерам
+    // Сначала добавляем маски (они невидимы и используются для обрезки)
+    innerContainer.addChild(masks.innerMask);
+    outerContainer.addChild(masks.outerMask);
+    
+    // Затем добавляем спрайты с текстурой (они будут обрезаны масками)
+    innerContainer.addChild(innerTextureSprite);
+    outerContainer.addChild(outerTextureSprite);
+    
+    // Добавляем цветные оверлеи ПОВЕРХ текстуры для видимости
+    const innerOverlay = new Graphics();
+    const outerOverlay = new Graphics();
+    
+    // Создаем цветные оверлеи ПРАВИЛЬНО: внутренние вершины для внутренней части
+    if (masks.insideVertices && masks.insideVertices.length >= 3) {
+        const innerVertices = [];
+        for (const vertex of masks.insideVertices) {
+            innerVertices.push(vertex.x - x, vertex.y - y);
+        }
+        innerOverlay.poly(innerVertices);
+        innerOverlay.fill({ color: innerColor, alpha: 0.8 }); // Желтый для внутренней части
+        innerContainer.addChild(innerOverlay);
+        
+        if (CONFIG.dev.consoleLogging) {
+            console.log(`🟡 Создан желтый оверлей для внутренней части из ${masks.insideVertices.length} вершин`);
+        }
+    }
+    
+    if (masks.outsideVertices && masks.outsideVertices.length >= 3) {
+        const outerVertices = [];
+        for (const vertex of masks.outsideVertices) {
+            outerVertices.push(vertex.x - x, vertex.y - y);
+        }
+        outerOverlay.poly(outerVertices);
+        outerOverlay.fill({ color: outerColor, alpha: 0.8 }); // Зеленый для внешней части
+        outerContainer.addChild(outerOverlay);
+        
+        if (CONFIG.dev.consoleLogging) {
+            console.log(`🟢 Создан зеленый оверлей для внешней части из ${masks.outsideVertices.length} вершин`);
+        }
+    }
+    
+    // Добавляем границу между частями
+    const borderLine = new Graphics();
+    if (intersections.length >= 2) {
+        borderLine.moveTo(intersections[0].x - x, intersections[0].y - y);
+        for (let i = 1; i < intersections.length; i++) {
+            borderLine.lineTo(intersections[i].x - x, intersections[i].y - y);
+        }
+        borderLine.stroke({ color: 0x000000, width: 2, alpha: 0.8 });
+        
+        // Добавляем границу к обеим частям
+        innerContainer.addChild(borderLine.clone());
+        outerContainer.addChild(borderLine);
+    }
+    
+    // Добавляем контейнеры на сцену
+    window.app.stage.addChild(innerContainer);
+    window.app.stage.addChild(outerContainer);
+    
+    // Создаем объекты кусочков
+    const innerHex = {
+        id: `small_hex_${hexId}_inner`,
+        graphics: null,
+        container: innerContainer,
+        textureSprite: innerTextureSprite,
+        x: x,
+        y: y,
+        radius: tempHex.radius,
+        index: hexId,
+        originalColor: innerColor,
+        currentColor: innerColor,
+        isPainted: false,
+        isInCenterShape: true, // Внутренняя часть логически в центре
+        isEdgePiece: isEdgePiece,
+        isEdgeOfCenterShape: false,
+        isSplitPart: true,
+        partType: 'inner'
+    };
+    
+    const outerHex = {
+        id: `small_hex_${hexId}_outer`,
+        graphics: null,
+        container: outerContainer,
+        textureSprite: outerTextureSprite,
+        x: x,
+        y: y,
+        radius: tempHex.radius,
+        index: hexId + 1,
+        originalColor: outerColor,
+        currentColor: outerColor,
+        isPainted: false,
+        isInCenterShape: false, // Внешняя часть логически снаружи
+        isEdgePiece: isEdgePiece,
+        isEdgeOfCenterShape: false,
+        isSplitPart: true,
+        partType: 'outer'
+    };
+    
+    return {
+        innerHex,
+        outerHex
+    };
+}
+
 // Поиск областей, отделенных от центральной формы
 function findDetachedAreas() {
     const cookieSprite = window.cookie;
@@ -3001,11 +3637,19 @@ function checkVictoryCondition() {
     if (!allHexagons) return false;
     
     // Находим все кусочки, которые НЕ относятся к центральной форме и НЕ обработаны (не упали)
-    const remainingNonCenterPieces = allHexagons.filter(hex => 
-        !hex.isInCenterShape && !hex.isPainted && !hex.isEdgePiece
-    );
+    const remainingNonCenterPieces = allHexagons.filter(hex => {
+        // Исключаем внутренние части разделенных кусочков и центральные кусочки
+        if (hex.isSplitPart && hex.partType === 'inner') return false;
+        if (hex.isInCenterShape && !hex.isSplitPart) return false;
+        
+        // Учитываем только внешние кусочки и внешние части разделенных кусочков
+        return (!hex.isInCenterShape || (hex.isSplitPart && hex.partType === 'outer')) && 
+               !hex.isPainted && 
+               !hex.isEdgePiece;
+    });
     
     if (isDev) {
+        console.log(`🎯 Проверка победы: осталось внешних кусочков ${remainingNonCenterPieces.length}`);
     }
     
     // Если не осталось обычных кусочков - победа!
