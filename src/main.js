@@ -4462,10 +4462,121 @@ function createShapeButtons() {
     hexContainer.appendChild(increaseBtn);
     container.appendChild(hexContainer);
     
+    // Создаем заголовок для слайдера сложности
+    const difficultyLabel = document.createElement('div');
+    difficultyLabel.textContent = 'Difficulty';
+    difficultyLabel.style.cssText = `
+        color: #fff;
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+        margin-top: 10px;
+        margin-bottom: 5px;
+    `;
+    container.appendChild(difficultyLabel);
+    
+    // Контейнер для слайдера сложности
+    const difficultyContainer = document.createElement('div');
+    difficultyContainer.style.cssText = `
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        align-items: center;
+    `;
+    
+    // Слайдер сложности (перевернутый)
+    const difficultySlider = document.createElement('input');
+    difficultySlider.type = 'range';
+    difficultySlider.min = '0.1';
+    difficultySlider.max = '5';
+    difficultySlider.step = '0.1';
+    difficultySlider.value = '2'; // Средняя сложность по умолчанию
+    difficultySlider.style.cssText = `
+        width: 150px;
+        height: 6px;
+        background: linear-gradient(to right, #ff4444, #ffaa44, #44ff44);
+        border-radius: 3px;
+        outline: none;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        transform: scaleX(-1);
+    `;
+    
+    // Дополнительные стили для webkit браузеров
+    const style = document.createElement('style');
+    style.textContent = `
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // Текст с текущим значением сложности
+    const difficultyValue = document.createElement('div');
+    difficultyValue.style.cssText = `
+        color: #fff;
+        font-size: 11px;
+        text-align: center;
+    `;
+    
+    // Функция обновления отображения сложности
+    function updateDifficultyDisplay(sliderValue) {
+        // Используем прямое значение слайдера
+        const multiplier = parseFloat(sliderValue);
+        const currentHexGrid = CONFIG.cookie.pieces.hexGrid;
+        const maxFalling = Math.round(currentHexGrid * multiplier);
+        
+        let difficultyText = '';
+        if (multiplier <= 1) {
+            difficultyText = 'Very Hard';
+        } else if (multiplier <= 2) {
+            difficultyText = 'Hard';
+        } else if (multiplier <= 3) {
+            difficultyText = 'Medium';
+        } else {
+            difficultyText = 'Easy';
+        }
+        
+        difficultyValue.textContent = difficultyText;
+        
+        // Обновляем конфигурацию
+        CONFIG.cookie.pieces.maxFallingPieces = maxFalling;
+    }
+    
+    // Обработчик изменения слайдера
+    difficultySlider.addEventListener('input', (event) => {
+        const sliderValue = parseFloat(event.target.value);
+        updateDifficultyDisplay(sliderValue);
+    });
+    
+    // Инициализация
+    updateDifficultyDisplay(2);
+    
+    difficultyContainer.appendChild(difficultySlider);
+    difficultyContainer.appendChild(difficultyValue);
+    container.appendChild(difficultyContainer);
+    
     document.body.appendChild(container);
     
     if (isDev) {
-        console.log('🔘 Кнопки смены формы созданы');
+        console.log('🔘 Кнопки смены формы и слайдер сложности созданы');
     }
 }
 
@@ -4601,6 +4712,32 @@ function changeHexGrid(newHexGrid) {
     if (CONFIG.cookie.pieces.hexGrid === clampedValue) return; // Уже установлено
     
     CONFIG.cookie.pieces.hexGrid = clampedValue;
+    
+    // Обновляем слайдер сложности, если он существует
+    const difficultySlider = document.querySelector('input[type="range"]');
+    if (difficultySlider) {
+        const sliderValue = parseFloat(difficultySlider.value);
+        // Используем прямое значение слайдера
+        const multiplier = sliderValue;
+        const maxFalling = Math.round(clampedValue * multiplier);
+        CONFIG.cookie.pieces.maxFallingPieces = maxFalling;
+        
+        // Обновляем отображение сложности
+        const difficultyValue = difficultySlider.parentElement.querySelector('div');
+        if (difficultyValue) {
+            let difficultyText = '';
+            if (multiplier <= 1) {
+                difficultyText = 'Very Hard';
+            } else if (multiplier <= 2) {
+                difficultyText = 'Hard';
+            } else if (multiplier <= 3) {
+                difficultyText = 'Medium';
+            } else {
+                difficultyText = 'Easy';
+            }
+            difficultyValue.textContent = difficultyText;
+        }
+    }
     
     // Сохраняем состояние конфига
     saveConfigState();
