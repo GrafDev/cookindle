@@ -797,29 +797,44 @@ function generateHolePositions(x, y, shapeConfig) {
             break;
             
         case 3: // Треугольник (исправленная геометрия)
-            const triangleHeight = halfSize * Math.sqrt(3);
+            const triangleHeight = size * Math.sqrt(3) / 2;
+            const triangleHalfBase = size / 2;
+            const triangleCentroidOffsetY = triangleHeight / 3;
             const trianglePerimeter = 3 * size;
             const triangleHoleCount = Math.floor(trianglePerimeter / holeSpacing);
+            
+            // Вершины треугольника (точно как в drawTriangleShape)
+            const trianglePoints = [
+                {x: x, y: y - (triangleHeight - triangleCentroidOffsetY)},           // Верхняя точка
+                {x: x + triangleHalfBase, y: y + triangleCentroidOffsetY},           // Правая нижняя точка
+                {x: x - triangleHalfBase, y: y + triangleCentroidOffsetY},           // Левая нижняя точка
+            ];
             
             for (let i = 0; i < triangleHoleCount; i++) {
                 const progress = i / triangleHoleCount;
                 let holeX, holeY;
                 
                 if (progress < 1/3) {
-                    // Нижняя сторона (горизонтальная)
+                    // Правая сторона (от верхней к правой нижней)
                     const t = progress * 3;
-                    holeX = x + (t - 0.5) * size;
-                    holeY = y + triangleHeight / 2;
+                    const start = trianglePoints[0];
+                    const end = trianglePoints[1];
+                    holeX = start.x + (end.x - start.x) * t;
+                    holeY = start.y + (end.y - start.y) * t;
                 } else if (progress < 2/3) {
-                    // Левая сторона
+                    // Нижняя сторона (от правой нижней к левой нижней)
                     const t = (progress - 1/3) * 3;
-                    holeX = x - halfSize + t * halfSize;
-                    holeY = y + triangleHeight / 2 - t * triangleHeight;
+                    const start = trianglePoints[1];
+                    const end = trianglePoints[2];
+                    holeX = start.x + (end.x - start.x) * t;
+                    holeY = start.y + (end.y - start.y) * t;
                 } else {
-                    // Правая сторона
+                    // Левая сторона (от левой нижней к верхней)
                     const t = (progress - 2/3) * 3;
-                    holeX = x + t * halfSize;
-                    holeY = y - triangleHeight / 2 + t * triangleHeight;
+                    const start = trianglePoints[2];
+                    const end = trianglePoints[0];
+                    holeX = start.x + (end.x - start.x) * t;
+                    holeY = start.y + (end.y - start.y) * t;
                 }
                 
                 holes.push({ x: holeX, y: holeY });
@@ -3232,7 +3247,25 @@ function calculateShapeBoundaryIntersections(hexagon) {
         }
     }
     
-    return intersections;
+    // Убираем дубликаты близких точек пересечения
+    const uniqueIntersections = [];
+    const tolerance = 0.1; // Толерантность для определения дубликатов
+    
+    for (const point of intersections) {
+        let isDuplicate = false;
+        for (const existing of uniqueIntersections) {
+            const distance = Math.sqrt(Math.pow(point.x - existing.x, 2) + Math.pow(point.y - existing.y, 2));
+            if (distance < tolerance) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            uniqueIntersections.push(point);
+        }
+    }
+    
+    return uniqueIntersections;
 }
 
 // Поиск пересечения линии с окружностью
@@ -3308,14 +3341,15 @@ function findLineSquareIntersection(x1, y1, x2, y2, cx, cy, halfSize) {
 function findLineTriangleIntersection(x1, y1, x2, y2, cx, cy, size) {
     const intersections = [];
     
-    // Вершины треугольника
-    const halfSize = size / 2;
-    const height = halfSize * Math.sqrt(3);
+    // Вершины треугольника (точно как в drawTriangleShape)
+    const height = size * Math.sqrt(3) / 2;
+    const halfBase = size / 2;
+    const centroidOffsetY = height / 3;
     
     const vertices = [
-        { x: cx, y: cy - height / 2 },                    // верх
-        { x: cx - halfSize, y: cy + height / 2 },         // лево-низ
-        { x: cx + halfSize, y: cy + height / 2 }          // право-низ
+        { x: cx, y: cy - (height - centroidOffsetY) },           // Верхняя точка
+        { x: cx + halfBase, y: cy + centroidOffsetY },           // Правая нижняя точка
+        { x: cx - halfBase, y: cy + centroidOffsetY }            // Левая нижняя точка
     ];
     
     // Проверяем пересечение с каждой стороной треугольника
@@ -3393,7 +3427,14 @@ function createSplitMasks(hexagon, intersections) {
     }
     
     // Добавляем точки пересечения к соответствующим массивам
-    for (const point of intersections) {
+    // Сортируем пересечения по углу для корректного порядка
+    const sortedIntersections = intersections.sort((a, b) => {
+        const angleA = Math.atan2(a.y - hexagon.y, a.x - hexagon.x);
+        const angleB = Math.atan2(b.y - hexagon.y, b.x - hexagon.x);
+        return angleA - angleB;
+    });
+    
+    for (const point of sortedIntersections) {
         insideVertices.push(point);
         outsideVertices.push(point);
     }
@@ -3422,6 +3463,10 @@ function createSplitMasks(hexagon, intersections) {
         }
         innerMask.poly(innerVertices);
         innerMask.fill(0xFFFFFF);
+    } else {
+        // Если внутренних вершин мало, создаем небольшую маску в центре
+        innerMask.circle(0, 0, 2);
+        innerMask.fill(0xFFFFFF);
     }
     
     // Создаем внешнюю маску
@@ -3431,6 +3476,19 @@ function createSplitMasks(hexagon, intersections) {
             outerVertices.push(vertex.x - hexagon.x, vertex.y - hexagon.y);
         }
         outerMask.poly(outerVertices);
+        outerMask.fill(0xFFFFFF);
+    } else {
+        // Если внешних вершин мало, создаем полную маску шестиугольника
+        const enlargedRadius = hexagon.radius * CONFIG.cookie.pieces.sizeMultiplier;
+        const sides = CONFIG.cookie.pieces.polygonSides;
+        const fullHexVertices = [];
+        for (let j = 0; j < sides; j++) {
+            const angle = (j * 2 * Math.PI) / sides;
+            const vx = Math.cos(angle) * enlargedRadius;
+            const vy = Math.sin(angle) * enlargedRadius;
+            fullHexVertices.push(vx, vy);
+        }
+        outerMask.poly(fullHexVertices);
         outerMask.fill(0xFFFFFF);
     }
     
