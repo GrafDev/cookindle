@@ -492,7 +492,7 @@ function drawCenterShape(graphics, x, y, shapeConfig) {
             }
         }
         
-        // Затем рисуем основную границу
+        // Рисуем только границу (заливка теперь делается через маску спрайта)
         switch (form) {
             case 1: // Круг
                 graphics.circle(x, y, halfSize);
@@ -688,12 +688,56 @@ function drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, 
 
 
 // Создание центральной формы с пульсирующей обводкой
-function createCenterShapeWithPulse(x, y, cookieSize) {
+function createCenterShapeWithPulse(x, y, cookieSize, cookieSprite) {
     const container = new Graphics();
     const shapeSize = cookieSize * CONFIG.centerShape.sizePercent;
     const shapeConfig = { ...CONFIG.centerShape, size: shapeSize };
     
-    // Создаем основную форму
+    // Создаем спрайт с текстурой печенья (как у кусочков)
+    const cookieTexture = Assets.get('cookie');
+    if (cookieTexture) {
+        const textureSprite = new Sprite(cookieTexture);
+        
+        // Позиционируем спрайт так, чтобы он точно совпадал с оригинальной печенькой
+        textureSprite.anchor.set(0.5);
+        textureSprite.width = cookieSize; // Используем cookieSize вместо cookieSprite.width
+        textureSprite.height = cookieSize;
+        textureSprite.x = 0; // Позиция относительно контейнера
+        textureSprite.y = 0;
+        
+        // Создаем маску в форме центральной формы
+        const shapeMask = new Graphics();
+        const halfSize = shapeSize / 2;
+        
+        switch (CONFIG.centerShape.form) {
+            case 1: // Круг
+                shapeMask.circle(0, 0, halfSize);
+                break;
+                
+            case 2: // Квадрат
+                const squareRadius = CONFIG.centerShape.borderRadius ? CONFIG.centerShape.borderRadius.square : 0;
+                shapeMask.roundRect(-halfSize, -halfSize, shapeSize, shapeSize, squareRadius);
+                break;
+                
+            case 3: // Треугольник
+                const triangleRadius = CONFIG.centerShape.borderRadius ? CONFIG.centerShape.borderRadius.triangle : 0;
+                drawRoundedTriangleShape(shapeMask, 0, 0, shapeSize, triangleRadius);
+                break;
+                
+            default:
+                shapeMask.circle(0, 0, halfSize);
+        }
+        shapeMask.fill({ color: 0xFFFFFF });
+        
+        // Применяем маску к спрайту
+        textureSprite.mask = shapeMask;
+        
+        // Добавляем спрайт и маску в контейнер
+        container.addChild(textureSprite);
+        container.addChild(shapeMask);
+    }
+    
+    // Создаем основную форму (только обводка)
     const mainShape = new Graphics();
     drawCenterShape(mainShape, 0, 0, shapeConfig);
     container.addChild(mainShape);
@@ -973,7 +1017,7 @@ function createCookie(app) {
     const smallHexagons = generateSmallHexagons(app, cookieSprite);
     
     // Создаем и добавляем центральную форму ПОВЕРХ кусочков
-    const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
+    const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize, cookieSprite);
     app.stage.addChild(centerShapeContainer);
     
     // Сохраняем ссылки для обновления размера
