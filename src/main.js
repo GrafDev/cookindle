@@ -2360,8 +2360,8 @@ function updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, inputX
     needleBaseY = needlePos.y;
 }
 
-// Функция создания черного крестика X
-function createDebugPoint() {
+// Функция создания черного крестика X для точки касания
+function createContactPoint() {
     const graphics = new Graphics();
     
     // Рисуем крестик X (диагональные линии)
@@ -2382,12 +2382,12 @@ function createDebugPoint() {
     return graphics;
 }
 
-// Функция показа точки касания кусочков (черный крестик X)
-function showDebugPoint(inputX, inputY) {
+// Функция показа точки касания кусочков (черный крестик X)  
+function showContactPoint(inputX, inputY) {
     
     let debugPoint = window.debugPoint;
     if (!debugPoint) {
-        debugPoint = createDebugPoint();
+        debugPoint = createContactPoint();
         if (window.app && window.app.stage) {
             window.app.stage.addChild(debugPoint);
         }
@@ -2403,7 +2403,7 @@ function showDebugPoint(inputX, inputY) {
 }
 
 // Функция скрытия крестика через быстрый фейд
-function hideDebugPoint() {
+function hideContactPoint() {
     const debugPoint = window.debugPoint;
     if (debugPoint && debugPoint.visible) {
         // Анимируем исчезновение
@@ -2553,7 +2553,7 @@ function setupInteractivity(app) {
         if (isMobile) {
             animateNeedleToTouch(x, y);
             animateNeedlePress(true);
-            setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
+            setTimeout(() => hideContactPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
             
             setTimeout(() => {
                 animateNeedlePress(false);
@@ -2611,7 +2611,7 @@ function setupDesktopInteractivity(gameArea) {
         event.preventDefault();
         isDragging = true;
         animateNeedlePress(true);
-        setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
+        setTimeout(() => hideContactPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
         
         const rect = gameArea.getBoundingClientRect();
         const x = event.clientX - rect.left;
@@ -2651,7 +2651,7 @@ function setupMobileInteractivity(gameArea) {
         updateNeedlePosition(x, y, 'touch', true);
         showNeedle();
         needlePressed = true; // Устанавливаем состояние нажатия
-        setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
+        setTimeout(() => hideContactPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
         
         // Воздействуем острием иглы
         handleNeedlePaintingAtPoint();
@@ -2732,13 +2732,14 @@ function updateNeedlePosition(x, y, inputType, pressed = false) {
     if (!needleSprite) return;
     
     // Показываем красную точку позиционирования
-    showDebugPoint(x, y);
+    showContactPoint(x, y);
     
     const needleConfig = CONFIG.needle;
     
     // Устанавливаем якоря в зависимости от типа ввода
     if (inputType === 'mouse') {
         needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+        needleSprite.visible = true; // Показываем иглу для мыши
         // На десктопе возвращаем нормальный масштаб и показываем тень
         if (isMobile) {
             // Если переключились с touch на mouse (гибридное устройство), возвращаем масштаб
@@ -2868,7 +2869,7 @@ function animateNeedleToTouch(targetX, targetY) {
     if (!needleSprite) return;
     
     // Показываем красную точку позиционирования
-    showDebugPoint(targetX, targetY);
+    showContactPoint(targetX, targetY);
     
     const duration = CONFIG.needle.mobile.animationDuration * 1000;
     
@@ -2949,9 +2950,19 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
     const startScale = hexContainer.scale.x;
     const startAlpha = hexContainer.alpha;
     
-    // Параметры движения - используем значения из конфига
-    const velocityX = Math.random() * (config.initialVelocity.x.max - config.initialVelocity.x.min) + config.initialVelocity.x.min;
-    const velocityY = Math.random() * (config.initialVelocity.y.max - config.initialVelocity.y.min) + config.initialVelocity.y.min;
+    // Параметры движения - только 10% кусочков имеют случайную скорость и направление
+    const isRandomFall = Math.random() < 0.1; // 10% вероятность случайного падения
+    
+    let velocityX, velocityY;
+    if (isRandomFall) {
+        // Случайная скорость для 10% кусочков
+        velocityX = Math.random() * (config.initialVelocity.x.max - config.initialVelocity.x.min) + config.initialVelocity.x.min;
+        velocityY = Math.random() * (config.initialVelocity.y.max - config.initialVelocity.y.min) + config.initialVelocity.y.min;
+    } else {
+        // Параболическое падение для 90% кусочков - одинаковая скорость без случайности
+        velocityX = -15; // Фиксированная горизонтальная скорость (влево)
+        velocityY = -40; // Фиксированная начальная скорость вверх
+    }
     
     // Параметры анимации с небольшой случайной вариативностью скорости
     const speedVariation = 0.8 + Math.random() * 0.4; // От 0.8 до 1.2 - небольшая вариативность
