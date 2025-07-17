@@ -1005,7 +1005,9 @@ function createCookie(app) {
     // Скрываем печеньку - она нужна только для захвата текстуры
     cookieSprite.visible = false;
     // Добавляем на сцену (но невидимую)
-    app.stage.addChild(cookieSprite);
+    if (app && app.stage) {
+        app.stage.addChild(cookieSprite);
+    }
     
     // Сохраняем ссылки для адаптивности
     window.cookie = cookieSprite;
@@ -1018,7 +1020,9 @@ function createCookie(app) {
     
     // Создаем и добавляем центральную форму ПОВЕРХ кусочков
     const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize, cookieSprite);
-    app.stage.addChild(centerShapeContainer);
+    if (app && app.stage) {
+        app.stage.addChild(centerShapeContainer);
+    }
     
     // Сохраняем ссылки для обновления размера
     window.centerShape = centerShapeContainer;
@@ -1062,7 +1066,9 @@ function drawBigHexagon(app, cookieSprite) {
     hexGraphics.stroke({ color: 0xFF0000, width: 3, alpha: 0.8 });
     
     // Добавляем на сцену
-    app.stage.addChild(hexGraphics);
+    if (app && app.stage) {
+        app.stage.addChild(hexGraphics);
+    }
     
     if (isDev) {
         console.log(`🔷 Нарисован большой шестиугольник радиуса ${bigHexRadius.toFixed(1)}`);
@@ -1301,7 +1307,9 @@ function generateSmallHexagons(app, cookieSprite) {
         hexContainer.eventMode = 'none';
         
         // Добавляем на сцену
-        app.stage.addChild(hexContainer);
+        if (app && app.stage) {
+            app.stage.addChild(hexContainer);
+        }
         
         return {
             id: `small_hex_${hexId}`,
@@ -1550,8 +1558,10 @@ function updateCookieSize() {
         centerShapeContainer.parent?.removeChild(centerShapeContainer);
         
         // Создаем новый с обновленным размером
-        const newCenterShape = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize);
-        window.app.stage.addChild(newCenterShape);
+        const newCenterShape = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize, cookieSprite);
+        if (window.app && window.app.stage) {
+            window.app.stage.addChild(newCenterShape);
+        }
         
         // Обновляем ссылку
         window.centerShape = newCenterShape;
@@ -1923,6 +1933,13 @@ function handleNeedlePaintingAtPoint() {
             }
             // СРАЗУ устанавливаем флаг Game Over, чтобы заблокировать проверку победы
             gameOverShown = true;
+            
+            // Скрываем спрайт и пунктир центральной формы
+            const centerShapeContainer = window.centerShape;
+            if (centerShapeContainer) {
+                centerShapeContainer.visible = false;
+            }
+            
             // Сначала рассыпаем всю печеньку, потом показываем Game Over
             animateFullCookieCrumble(() => {
                 showGameOverModal();
@@ -1942,6 +1959,13 @@ function handleNeedlePaintingAtPoint() {
         if (hexagon.isInCenterShape && !hexagon.isEdgeOfCenterShape) {
             // СРАЗУ устанавливаем флаг Game Over, чтобы заблокировать проверку победы
             gameOverShown = true;
+            
+            // Скрываем спрайт и пунктир центральной формы
+            const centerShapeContainer = window.centerShape;
+            if (centerShapeContainer) {
+                centerShapeContainer.visible = false;
+            }
+            
             // Сначала рассыпаем всю печеньку, потом показываем Game Over
             animateFullCookieCrumble(() => {
                 showGameOverModal();
@@ -2329,25 +2353,37 @@ function updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, inputX
     needleBaseY = needlePos.y;
 }
 
-// Функция создания красной точки для отладки
+// Функция создания черного крестика X
 function createDebugPoint() {
     const graphics = new Graphics();
-    graphics.circle(0, 0, 1); // Радиус 1px
-    graphics.fill(0xFF0000); // Красный цвет
-    graphics.zIndex = 2000; // Поверх всего
+    
+    // Рисуем крестик X (диагональные линии)
+    const size = 3; // Размер крестика
+    
+    // Диагональная линия от левого верха к правому низу
+    graphics.moveTo(-size, -size);
+    graphics.lineTo(size, size);
+    
+    // Диагональная линия от правого верха к левому низу
+    graphics.moveTo(size, -size);
+    graphics.lineTo(-size, size);
+    
+    graphics.stroke({ color: 0x000000, width: 2 }); // Черный цвет, толщина 2px
+    graphics.zIndex = 999999; // Поверх всего
     graphics.visible = false; // Скрыта по умолчанию
     
     return graphics;
 }
 
-// Функция показа точки касания кусочков (красная точка)
+// Функция показа точки касания кусочков (черный крестик X)
 function showDebugPoint(inputX, inputY) {
-    if (!isDev) return; // Только в режиме разработки
     
     let debugPoint = window.debugPoint;
     if (!debugPoint) {
         debugPoint = createDebugPoint();
-        window.app.stage.addChild(debugPoint);
+        if (window.app && window.app.stage) {
+            window.app.stage.addChild(debugPoint);
+        }
         window.debugPoint = debugPoint;
     }
     
@@ -2357,13 +2393,32 @@ function showDebugPoint(inputX, inputY) {
     debugPoint.x = contactPoint.x;
     debugPoint.y = contactPoint.y;
     debugPoint.visible = true;
-    
-    // Автоматически скрыть через 2 секунды
-    setTimeout(() => {
-        if (debugPoint) {
-            debugPoint.visible = false;
+}
+
+// Функция скрытия крестика через быстрый фейд
+function hideDebugPoint() {
+    const debugPoint = window.debugPoint;
+    if (debugPoint && debugPoint.visible) {
+        // Анимируем исчезновение
+        const startTime = Date.now();
+        const duration = 150; // 150ms быстрый фейд
+        
+        function fadeOut() {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            debugPoint.alpha = 1 - progress;
+            
+            if (progress < 1) {
+                requestAnimationFrame(fadeOut);
+            } else {
+                debugPoint.visible = false;
+                debugPoint.alpha = 1; // Восстанавливаем альфу для следующего показа
+            }
         }
-    }, 2000);
+        
+        requestAnimationFrame(fadeOut);
+    }
 }
 
 // Создание спрайта иглы
@@ -2419,12 +2474,37 @@ function createNeedle(app) {
     }
     
     // Добавляем на сцену (сначала тень, потом иглу)
-    app.stage.addChild(needleShadowSprite);
-    app.stage.addChild(needleSprite);
+    if (app && app.stage) {
+        app.stage.addChild(needleShadowSprite);
+        app.stage.addChild(needleSprite);
+    }
     
     // Сохраняем ссылки для доступа
     window.needle = needleSprite;
     window.needleShadow = needleShadowSprite;
+    
+    // Для десктопа: проверяем, находится ли мышь уже в игровой области
+    if (!isMobile) {
+        const gameArea = document.getElementById('gameArea');
+        if (gameArea) {
+            // Проверяем, находится ли мышь в области после рестарта
+            gameArea.addEventListener('mousemove', function checkMouseInside(event) {
+                const rect = gameArea.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+                
+                // Если мышь в области, показываем иглу
+                if (mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height) {
+                    updateNeedlePosition(mouseX, mouseY, 'mouse');
+                    showNeedle();
+                }
+                
+                // Удаляем обработчик после первого вызова
+                gameArea.removeEventListener('mousemove', checkMouseInside);
+            }, { once: true });
+        }
+    }
+    
     console.log('🪡 Размер иглы:', needleSize, 'scale:', scale);
     console.log('🌑 Тень иглы создана');
     console.log('📱 Мобильное устройство:', isMobile);
@@ -2466,6 +2546,7 @@ function setupInteractivity(app) {
         if (isMobile) {
             animateNeedleToTouch(x, y);
             animateNeedlePress(true);
+            setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
             
             setTimeout(() => {
                 animateNeedlePress(false);
@@ -2523,6 +2604,7 @@ function setupDesktopInteractivity(gameArea) {
         event.preventDefault();
         isDragging = true;
         animateNeedlePress(true);
+        setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
         
         const rect = gameArea.getBoundingClientRect();
         const x = event.clientX - rect.left;
@@ -2562,6 +2644,7 @@ function setupMobileInteractivity(gameArea) {
         updateNeedlePosition(x, y, 'touch', true);
         showNeedle();
         needlePressed = true; // Устанавливаем состояние нажатия
+        setTimeout(() => hideDebugPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
         
         // Воздействуем острием иглы
         handleNeedlePaintingAtPoint();
@@ -3700,8 +3783,10 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     // }
     
     // Добавляем контейнеры на сцену
-    window.app.stage.addChild(innerContainer);
-    window.app.stage.addChild(outerContainer);
+    if (window.app && window.app.stage) {
+        window.app.stage.addChild(innerContainer);
+        window.app.stage.addChild(outerContainer);
+    }
     
     // Создаем объекты кусочков
     const innerHex = {
@@ -3817,7 +3902,9 @@ function createChip(area) {
     chip.y = area.centerY;
     
     // Добавляем в stage (поверх печенья)
-    app.stage.addChild(chip);
+    if (app && app.stage) {
+        app.stage.addChild(chip);
+    }
     
     // Анимация откалывания
     animateChipFall(chip, area);
@@ -3855,7 +3942,9 @@ function animateChipFall(chip, area) {
             requestAnimationFrame(animate);
         } else {
             // Удаляем кусок
-            app.stage.removeChild(chip);
+            if (app && app.stage) {
+                app.stage.removeChild(chip);
+            }
             chip.destroy();
         }
     };
@@ -4132,7 +4221,7 @@ function showGameOverModal() {
     // Создаем содержимое модального окна с bg_modal.png
     const modalContent = document.createElement('div');
     modalContent.style.cssText = `
-        background: url('./src/assets/textures/bg_modal.png');
+        background: url('./src/assets/textures/bg.png');
         background-size: cover;
         background-position: center;
         position: relative;
