@@ -1379,7 +1379,11 @@ function generateSmallHexagons(app, cookieSprite) {
                     }
                 } else {
                     // Если недостаточно точек пересечения, создаем обычный кусочек
-                    const color = isInCenterShape ? CONFIG.dev.splitPieceColors.centerPiece : CONFIG.dev.splitPieceColors.regular;
+                    let color = CONFIG.dev.splitPieceColors.regular;
+                    // Основание (центральные кусочки) помечаем красным
+                    // if (isInCenterShape) {
+                    //     color = 0xFF0000; // Красный цвет для основания
+                    // }
                     const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
                     hex.q = q;
                     hex.r = r;
@@ -1390,22 +1394,17 @@ function generateSmallHexagons(app, cookieSprite) {
                 // Обычный кусочек без разделения
                 // Цвет в зависимости от типа кусочка
                 let color;
-                if (CONFIG.dev.showSplitPieces) {
-                    if (isEdgePiece) {
-                        color = CONFIG.dev.splitPieceColors.edgePiece;
-                    } else if (isInCenterShape) {
-                        color = CONFIG.dev.splitPieceColors.centerPiece;
-                    } else {
-                        color = CONFIG.dev.splitPieceColors.regular;
-                    }
+                // Стандартные цвета без маркировки
+                if (isEdgePiece) {
+                    color = CONFIG.dev.showSplitPieces ? CONFIG.dev.splitPieceColors.edgePiece : 0x0080FF;
                 } else {
-                    // Стандартные цвета без маркировки
-                    if (isEdgePiece) {
-                        color = 0x0080FF; // Прозрачный синий для крайних кусочков
-                    } else {
-                        color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
-                    }
+                    color = isInsideCookie ? 0x00FF00 : 0xFFFF00; // Зеленый - внутри, желтый - пересекается
                 }
+                
+                // Основание (центральные кусочки) помечаем красным
+                // if (isInCenterShape) {
+                //     color = 0xFF0000; // Красный цвет для основания
+                // }
                 
                 const hex = createHexagon(x, y, hexId++, color, rotation, isInCenterShape, isEdgePiece);
                 
@@ -1621,9 +1620,21 @@ function findHexagonNeighbors(targetHexagon, allHexagons) {
 // Алгоритм поиска связанных компонентов (BFS)
 function findConnectedComponents(clickedHexagon, allHexagons) {
     const visited = new Set();
-    const centerHexagons = allHexagons.filter(hex => hex.isInCenterShape && !hex.isPainted);
+    // Основой считаются: обычные центральные кусочки + внутренние части разделенных кусочков
+    const centerHexagons = allHexagons.filter(hex => 
+        !hex.isPainted && (
+            (hex.isInCenterShape && !hex.isSplitPart) || // Обычные центральные кусочки
+            (hex.isSplitPart && hex.partType === 'inner') // Внутренние части разделенных кусочков
+        )
+    );
     // Исключаем крайние кусочки из расчета связности
-    const nonCenterHexagons = allHexagons.filter(hex => !hex.isInCenterShape && !hex.isPainted && !hex.isEdgePiece);
+    // Также исключаем внутренние части разделенных кусочков (они теперь часть основы)
+    const nonCenterHexagons = allHexagons.filter(hex => 
+        !hex.isPainted && 
+        !hex.isEdgePiece && 
+        !(hex.isInCenterShape && !hex.isSplitPart) && // Исключаем обычные центральные
+        !(hex.isSplitPart && hex.partType === 'inner') // Исключаем внутренние части разделенных
+    );
     const edgeHexagons = allHexagons.filter(hex => hex.isEdgePiece && !hex.isPainted);
     
     // Функция BFS для поиска связанных кусочков
@@ -1650,13 +1661,42 @@ function findConnectedComponents(clickedHexagon, allHexagons) {
     
     // Проверяем, есть ли путь от компонента до центральных кусочков
     function hasPathToCenter(component) {
-        // Ищем хотя бы один кусочек из компонента, который является соседом с центральным кусочком
-        for (const hexagon of component) {
-            const neighbors = findHexagonNeighbors(hexagon, centerHexagons);
-            if (neighbors.length > 0) {
+        // Создаем множество всех доступных кусочков для поиска пути
+        // Включаем: основу + внешние части разделенных кусочков + обычные внешние кусочки
+        const allAvailableHexagons = [
+            ...centerHexagons,
+            ...allHexagons.filter(hex => 
+                !hex.isPainted && 
+                (hex.isSplitPart && hex.partType === 'outer') // Внешние части разделенных кусочков
+            ),
+            ...nonCenterHexagons
+        ];
+        
+        // BFS поиск пути от любого кусочка компонента к основе
+        const visited = new Set();
+        const queue = [...component];
+        
+        // Отмечаем все кусочки компонента как посещенные
+        component.forEach(hex => visited.add(hex.id));
+        
+        while (queue.length > 0) {
+            const current = queue.shift();
+            
+            // Проверяем, достигли ли мы основы
+            if (centerHexagons.some(centerHex => centerHex.id === current.id)) {
                 return true;
             }
+            
+            // Ищем соседей среди доступных кусочков
+            const neighbors = findHexagonNeighbors(current, allAvailableHexagons);
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id) && !neighbor.isPainted) {
+                    visited.add(neighbor.id);
+                    queue.push(neighbor);
+                }
+            }
         }
+        
         return false;
     }
     
@@ -1759,6 +1799,7 @@ function paintHexagon(hexagon, color = 0xFF0000) {
     
     return true;
 }
+
 
 // Получение кусочков по кольцам вокруг центрального кусочка
 function getHexagonsByRings(centerHex, allHexagons, maxCount) {
@@ -1903,20 +1944,28 @@ function handleNeedlePaintingAtPoint() {
         const needleAnimationDuration = CONFIG.needle.shadow.animationDuration * 1000; // Переводим в миллисекунды
         
         setTimeout(() => {
-            // Запускаем анимацию падения для всех выпадающих кусочков
-            fallingHexagons.forEach((fallingHex) => {
-                if (fallingHex.container) {
-                    animateHexagonFall(fallingHex.container, fallingHex.radius, fallingHex.x, fallingHex.y);
-                }
-            });
+            // Сначала запускаем анимацию падения для кликнутого кусочка
+            if (hexagon.container) {
+                animateHexagonFall(hexagon.container, hexagon.radius, hexagon.x, hexagon.y);
+            }
             
-            // Запускаем анимацию падения для всех отколовшихся кусочков мгновенно
-            uniqueDisconnected.forEach((disconnectedHex) => {
-                if (disconnectedHex.container && !disconnectedHex.isPainted) {
-                    disconnectedHex.isPainted = true;
-                    animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
-                }
-            });
+            // Через 0.1 секунды запускаем анимацию падения для остальных кусочков из группы
+            setTimeout(() => {
+                fallingHexagons.forEach((fallingHex) => {
+                    // Пропускаем кликнутый кусочек, он уже падает
+                    if (fallingHex.id !== hexagon.id && fallingHex.container) {
+                        animateHexagonFall(fallingHex.container, fallingHex.radius, fallingHex.x, fallingHex.y);
+                    }
+                });
+                
+                // Запускаем анимацию падения для всех отколовшихся кусочков тоже с задержкой
+                uniqueDisconnected.forEach((disconnectedHex) => {
+                    if (disconnectedHex.container && !disconnectedHex.isPainted) {
+                        disconnectedHex.isPainted = true;
+                        animateHexagonFall(disconnectedHex.container, disconnectedHex.radius, disconnectedHex.x, disconnectedHex.y);
+                    }
+                });
+            }, 100); // Задержка 0.1 секунды (100 мс)
             
             // Проверяем победу через время, достаточное для анимации падения
             // НО только если не было Game Over
@@ -1924,7 +1973,7 @@ function handleNeedlePaintingAtPoint() {
                 if (!gameOverShown && checkVictoryCondition()) {
                     showCongratulationsModal();
                 }
-            }, CONFIG.cookie.pieces.chipAnimation.duration * 1000 + 500); // Даем время на анимацию + буфер
+            }, CONFIG.cookie.pieces.chipAnimation.duration * 1000 + 600); // Даем время на анимацию + буфер + задержка
             
         }, needleAnimationDuration);
         
@@ -2753,6 +2802,11 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
         return;
     }
     
+    // Перемещаем падающий кусочек на задний план (ниже остальных)
+    if (hexContainer.parent) {
+        hexContainer.parent.setChildIndex(hexContainer, 0);
+    }
+    
     const config = CONFIG.cookie.pieces.chipAnimation;
     
     // Начальные параметры - используем реальные координаты
@@ -2761,9 +2815,9 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
     const startScale = hexContainer.scale.x;
     const startAlpha = hexContainer.alpha;
     
-    // Параметры движения - только вниз без вращения
-    const velocityX = 0; // Убираем горизонтальное движение
-    const velocityY = 0; // Начальная скорость по Y = 0, будет только гравитация
+    // Параметры движения - используем значения из конфига
+    const velocityX = Math.random() * (config.initialVelocity.x.max - config.initialVelocity.x.min) + config.initialVelocity.x.min;
+    const velocityY = Math.random() * (config.initialVelocity.y.max - config.initialVelocity.y.min) + config.initialVelocity.y.min;
     
     // Параметры анимации с небольшой случайной вариативностью скорости
     const speedVariation = 0.8 + Math.random() * 0.4; // От 0.8 до 1.2 - небольшая вариативность
@@ -2787,20 +2841,23 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
         
-        // Простое плавное движение вниз без вращения
+        // Параболическое движение с гравитацией из конфига
         const fallDistance = screenHeight + hexRadius * 2; // Расстояние падения
-        const currentY = startY + fallDistance * progress;
+        const gravity = config.gravity; // Используем гравитацию из конфига
         
-        // Применяем изменения - только по Y, без вращения
-        hexContainer.x = startX; // Фиксируем X координату
+        // Расчет позиций с учетом физики
+        const timeInSeconds = elapsed / 1000; // Время в секундах
+        const currentX = startX + velocityX * timeInSeconds;
+        const currentY = startY + velocityY * timeInSeconds + gravity * timeInSeconds * timeInSeconds;
+        
+        // Применяем изменения - параболическое движение
+        hexContainer.x = currentX;
         hexContainer.y = currentY;
         
         // Убираем логирование для производительности
         
-        // Эффекты масштабирования и исчезновения
-        if (config.fadeOut && hexContainer) {
-            hexContainer.alpha = startAlpha * (1 - progress * 0.8); // Постепенное исчезновение
-        }
+        // Эффекты масштабирования (убираем исчезновение)
+        // Фейдинг отключен - кусочки остаются видимыми при падении
         
         if (hexContainer) {
             const scaleProgress = Math.min(progress * 2, 1); // Ускоренное уменьшение
@@ -2808,11 +2865,11 @@ function animateHexagonFall(hexContainer, hexRadius, realX, realY) {
             hexContainer.scale.set(currentScale);
         }
         
-        // Продолжаем анимацию пока не закончится
-        if (progress < 1) {
+        // Продолжаем анимацию пока кусочек не выйдет за пределы экрана
+        if (currentY < screenHeight + hexRadius * 2) {
             requestAnimationFrame(animate);
         } else {
-            // Удаляем объект после окончания анимации
+            // Удаляем объект когда он выходит за пределы экрана
             if (hexContainer.parent) {
                 hexContainer.parent.removeChild(hexContainer);
                 hexContainer.destroy();
@@ -3506,7 +3563,7 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     if (!masks) return null;
     
     const cookieTexture = Assets.get('cookie');
-    const innerColor = CONFIG.dev.splitPieceColors.inner;
+    const innerColor = 0xFF00FF; // Сиреневый цвет для внутренних частей (основание)
     const outerColor = CONFIG.dev.splitPieceColors.outer;
     
     // Создаем контейнер для внутренней части
