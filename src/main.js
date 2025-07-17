@@ -2077,12 +2077,7 @@ function updateNeedleSize() {
     // Обновляем масштаб иглы
     const needleTexture = needleSprite.texture;
     const scale = needleSize / Math.max(needleTexture.width, needleTexture.height);
-    if (isMobile) {
-        // На мобильных сохраняем отзеркаливание по Y
-        needleSprite.scale.set(scale, -scale);
-    } else {
-        needleSprite.scale.set(scale);
-    }
+    needleSprite.scale.set(scale);
     
     // Обновляем масштаб тени
     if (needleShadowSprite) {
@@ -2091,19 +2086,6 @@ function updateNeedleSize() {
         needleShadowSprite.scale.set(shadowScale);
     }
     
-    // Обновляем позицию для мобильных устройств
-    if (isMobile) {
-        needleSprite.x = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-        needleSprite.y = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-        needleBaseY = needleSprite.y;
-        
-        // Обновляем позицию тени
-        if (needleShadowSprite) {
-            const x = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-            const y = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-            updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, x, y, false);
-        }
-    }
     
     console.log('🪡 Размер иглы обновлен:', needleSize, 'scale:', scale);
 }
@@ -2279,20 +2261,9 @@ function createProgrammaticNeedleShadow() {
 
 // Функция вычисления точки касания кусочков из координат пальца/мыши
 function calculateContactPoint(inputX, inputY) {
-    if (isMobile) {
-        // На мобильных красная точка в верхнем левом углу иглы (как было раньше)
-        const needleSprite = window.needle;
-        if (needleSprite) {
-            // Зеркалю только по Y оси!
-            const touchOffset = CONFIG.needle.touchOffset;
-            return {
-                x: inputX - needleSprite.width * touchOffset.x,
-                y: inputY - needleSprite.height * (1 - touchOffset.y)
-            };
-        }
-    }
-    
-    // На десктопе мышь = точка касания
+    // Крестик показывается в точке, где реально действует игла
+    // Поскольку anchor установлен в mouseOffset (0, 1), то острие иглы
+    // находится точно в позиции (inputX, inputY) когда игла там позиционируется
     return { x: inputX, y: inputY };
 }
 
@@ -2300,17 +2271,11 @@ function calculateContactPoint(inputX, inputY) {
 function calculateNeedlePosition(inputX, inputY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
-    if (isMobile) {
-        // На мобильных игла центром на точке касания пальца
-        // Игла всегда центрирована на точке касания пальца
-        return { x: inputX, y: inputY };
+    // Унифицированная логика для всех устройств
+    if (pressed) {
+        return { x: inputX, y: inputY }; // Игла в точке касания (острие)
     } else {
-        // На десктопе игла относительно точки касания кусочков
-        if (pressed) {
-            return { x: inputX, y: inputY }; // Игла в точке касания (острие)
-        } else {
-            return { x: inputX, y: inputY - distance }; // Игла выше точки касания
-        }
+        return { x: inputX, y: inputY - distance }; // Игла выше точки касания
     }
 }
 
@@ -2318,17 +2283,11 @@ function calculateNeedlePosition(inputX, inputY, pressed = false) {
 function calculateShadowPosition(inputX, inputY, pressed = false) {
     const distance = CONFIG.needle.shadow.distance;
     
-    if (isMobile) {
-        // На мобильных тень центром на точке касания пальца
-        // Тень всегда смещена относительно центра иглы
-        return { x: inputX + distance, y: inputY + distance };
+    // Унифицированная логика для всех устройств
+    if (pressed) {
+        return { x: inputX, y: inputY }; // Тень в точке касания
     } else {
-        // На десктопе тень относительно точки касания кусочков
-        if (pressed) {
-            return { x: inputX, y: inputY }; // Тень в точке касания
-        } else {
-            return { x: inputX + distance, y: inputY - distance }; // Тень смещена
-        }
+        return { x: inputX + distance, y: inputY - distance }; // Тень смещена
     }
 }
 
@@ -2454,31 +2413,11 @@ function createNeedle(app) {
     needleShadowSprite.zIndex = 999; // Тень под иглой
     needleShadowSprite.alpha = CONFIG.needle.shadow.alpha; // Прозрачность тени из конфига
     
-    // Устанавливаем начальную позицию для мобильных устройств
-    if (isMobile) {
-        needleSprite.visible = true;
-        needleShadowSprite.visible = false; // На мобильных тень скрыта сразу
-        needleSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y); // Левый нижний угол
-        needleShadowSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y);
-        
-        // Отзеркаливаем иглу для мобильных устройств (меняем знак у scale.y)
-        needleSprite.scale.y = -needleSprite.scale.y;
-        
-        const startX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-        const startY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-        
-        needleSprite.x = startX;
-        needleSprite.y = startY;
-        
-        // Устанавливаем позицию тени через универсальную функцию
-        updateNeedleAndShadowPositions(needleSprite, needleShadowSprite, startX, startY, false);
-        
-        needleBaseY = needleSprite.y;
-    } else {
-        // Для десктопа не инициализируем позицию - игла появится где мышь
-        needleSprite.visible = false; // Скрыта до первого mouseenter
-        needleShadowSprite.visible = false;
-    }
+    // Устанавливаем начальную позицию
+    needleSprite.visible = false; // Скрыта до первого использования
+    needleShadowSprite.visible = false;
+    needleSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y);
+    needleShadowSprite.anchor.set(CONFIG.needle.mouseOffset.x, CONFIG.needle.mouseOffset.y);
     
     // Добавляем на сцену (сначала тень, потом иглу)
     if (app && app.stage) {
@@ -2490,31 +2429,29 @@ function createNeedle(app) {
     window.needle = needleSprite;
     window.needleShadow = needleShadowSprite;
     
-    // Для десктопа: проверяем, находится ли мышь уже в игровой области
-    if (!isMobile) {
-        const gameArea = document.getElementById('gameArea');
-        if (gameArea) {
-            // Проверяем, находится ли мышь в области после рестарта
-            gameArea.addEventListener('mousemove', function checkMouseInside(event) {
-                const rect = gameArea.getBoundingClientRect();
-                const mouseX = event.clientX - rect.left;
-                const mouseY = event.clientY - rect.top;
-                
-                // Если мышь в области, показываем иглу
-                if (mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height) {
-                    updateNeedlePosition(mouseX, mouseY, 'mouse');
-                    showNeedle();
-                }
-                
-                // Удаляем обработчик после первого вызова
-                gameArea.removeEventListener('mousemove', checkMouseInside);
-            }, { once: true });
-        }
+    // Проверяем, находится ли мышь уже в игровой области
+    const gameAreaElement = document.getElementById('gameArea');
+    if (gameAreaElement) {
+        // Проверяем, находится ли мышь в области после рестарта
+        gameAreaElement.addEventListener('mousemove', function checkMouseInside(event) {
+            const rect = gameAreaElement.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            // Если мышь в области, показываем иглу
+            if (mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height) {
+                updateNeedlePosition(mouseX, mouseY, 'mouse');
+                showNeedle();
+            }
+            
+            // Удаляем обработчик после первого вызова
+            gameAreaElement.removeEventListener('mousemove', checkMouseInside);
+        }, { once: true });
     }
     
     console.log('🪡 Размер иглы:', needleSize, 'scale:', scale);
     console.log('🌑 Тень иглы создана');
-    console.log('📱 Мобильное устройство:', isMobile);
+    console.log('📱 Унифицированное управление для всех устройств');
     
     return needleSprite;
 }
@@ -2530,49 +2467,18 @@ function setupInteractivity(app) {
     }
     
     // Принудительная отладка
-    showTouchDebug(`SETUP: ${isMobile ? 'MOBILE' : 'DESKTOP'}`);
+    showTouchDebug(`SETUP: UNIFIED`);
     
-    if (isMobile) {
-        // Мобильные устройства - отдельная логика
-        setupMobileInteractivity(gameArea);
-    } else {
-        // Десктопные устройства - логика с мышью
-        setupDesktopInteractivity(gameArea);
-    }
+    // Единая логика для всех устройств
+    setupDesktopInteractivity(gameArea);
     
-    // ПРИНУДИТЕЛЬНО добавляем базовые обработчики для всех устройств
-    gameArea.addEventListener('click', (event) => {
-        showTouchDebug('UNIVERSAL CLICK');
-        
-        const rect = gameArea.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
-        showTouchDebug(`CLICK: ${x.toFixed(0)}, ${y.toFixed(0)}`);
-        
-        if (isMobile) {
-            animateNeedleToTouch(x, y);
-            animateNeedlePress(true);
-            setTimeout(() => hideContactPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
-            
-            setTimeout(() => {
-                animateNeedlePress(false);
-                setTimeout(() => {
-                    const gameWidth = gameArea.clientWidth;
-                    const gameHeight = gameArea.clientHeight;
-                    const staticX = gameWidth * CONFIG.needle.mobile.staticPosition.x;
-                    const staticY = gameHeight * CONFIG.needle.mobile.staticPosition.y;
-                    animateNeedleToTouch(staticX, staticY);
-                }, 200);
-            }, 300);
-        }
-    });
-    
-    console.log('🖱️ Интерактивность настроена для', isMobile ? 'мобильного' : 'десктопного', 'устройства');
+    console.log('🖱️ Интерактивность настроена для всех устройств');
 }
 
-// Настройка интерактивности для десктопа
+// Настройка унифицированной интерактивности для всех устройств
 function setupDesktopInteractivity(gameArea) {
+    let isTouching = false;
+    
     // Обработка движения мыши
     gameArea.addEventListener('mousemove', (event) => {
         const rect = gameArea.getBoundingClientRect();
@@ -2613,10 +2519,6 @@ function setupDesktopInteractivity(gameArea) {
         animateNeedlePress(true);
         setTimeout(() => hideContactPoint(), 50); // Скрываем крестик после нажатия с небольшой задержкой
         
-        const rect = gameArea.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
         // Сразу воздействуем острием иглы
         handleNeedlePaintingAtPoint();
     });
@@ -2625,14 +2527,6 @@ function setupDesktopInteractivity(gameArea) {
         animateNeedlePress(false);
         isDragging = false;
     });
-}
-
-// Настройка интерактивности для мобильных устройств
-function setupMobileInteractivity(gameArea) {
-    console.log('🔧 Настраиваем мобильную интерактивность');
-    showTouchDebug('SETUP MOBILE');
-    
-    let isTouching = false;
     
     // Обработка начала касания
     gameArea.addEventListener('touchstart', (event) => {
@@ -2677,17 +2571,16 @@ function setupMobileInteractivity(gameArea) {
     }, { passive: false });
     
     // Обработка окончания касания
-    gameArea.addEventListener('touchend', (event) => {
+    gameArea.addEventListener('touchend', () => {
         isTouching = false;
         isDragging = false;
+        needlePressed = false;
+        animateNeedlePress(false);
         
         showTouchDebug('TOUCH END');
-        
-        // Отпускаем иглу и скрываем
-        needlePressed = false; // Сбрасываем состояние нажатия
-        hideNeedle();
-    }, { passive: false });
+    });
 }
+
 
 // Показать иглу
 function showNeedle() {
@@ -2736,24 +2629,18 @@ function updateNeedlePosition(x, y, inputType, pressed = false) {
     
     const needleConfig = CONFIG.needle;
     
-    // Устанавливаем якоря в зависимости от типа ввода
-    if (inputType === 'mouse') {
-        needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
-        needleSprite.visible = true; // Показываем иглу для мыши
-        // На десктопе возвращаем нормальный масштаб и показываем тень
-        if (isMobile) {
-            // Если переключились с touch на mouse (гибридное устройство), возвращаем масштаб
-            needleSprite.scale.y = Math.abs(needleSprite.scale.y);
-        }
-        if (needleShadowSprite) {
-            needleShadowSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
-            needleShadowSprite.visible = true;
-        }
-    } else if (inputType === 'touch') {
-        needleSprite.anchor.set(needleConfig.touchOffset.x, needleConfig.touchOffset.y);
-        // На мобильных тень уже скрыта при создании
-        if (needleShadowSprite) {
+    // Устанавливаем одинаковые якоря для всех типов ввода
+    needleSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+    needleSprite.visible = true;
+    needleSprite.scale.y = Math.abs(needleSprite.scale.y);
+    
+    if (needleShadowSprite) {
+        needleShadowSprite.anchor.set(needleConfig.mouseOffset.x, needleConfig.mouseOffset.y);
+        // Для touch событий тень скрыта
+        if (inputType === 'touch') {
             needleShadowSprite.visible = false;
+        } else {
+            needleShadowSprite.visible = true;
         }
     }
     
@@ -2800,20 +2687,17 @@ function animateNeedlePress(pressed) {
         }
     }
     
-    // На мобильных устройствах просто обновляем позицию без анимации
-    if (isMobile) {
-        const needlePos = calculateNeedlePosition(currentClickPoint.x, currentClickPoint.y, pressed);
-        const shadowPos = calculateShadowPosition(currentClickPoint.x, currentClickPoint.y, pressed);
-        
-        needleSprite.x = needlePos.x;
-        needleSprite.y = needlePos.y;
-        needleBaseY = needlePos.y;
-        
-        if (needleShadowSprite) {
-            needleShadowSprite.x = shadowPos.x;
-            needleShadowSprite.y = shadowPos.y;
-        }
-        return;
+    // Простое обновление позиции
+    const needlePos = calculateNeedlePosition(currentClickPoint.x, currentClickPoint.y, pressed);
+    const shadowPos = calculateShadowPosition(currentClickPoint.x, currentClickPoint.y, pressed);
+    
+    needleSprite.x = needlePos.x;
+    needleSprite.y = needlePos.y;
+    needleBaseY = needlePos.y;
+    
+    if (needleShadowSprite) {
+        needleShadowSprite.x = shadowPos.x;
+        needleShadowSprite.y = shadowPos.y;
     }
     
     // Останавливаем предыдущую анимацию (только для десктопа)
@@ -2862,70 +2746,6 @@ function animateNeedlePress(pressed) {
     needleSprite.pressAnimation = requestAnimationFrame(animate);
 }
 
-// Анимация перемещения иглы к касанию (для мобильных)
-function animateNeedleToTouch(targetX, targetY) {
-    const needleSprite = window.needle;
-    const needleShadowSprite = window.needleShadow;
-    if (!needleSprite) return;
-    
-    // Показываем красную точку позиционирования
-    showContactPoint(targetX, targetY);
-    
-    const duration = CONFIG.needle.mobile.animationDuration * 1000;
-    
-    // Останавливаем предыдущую анимацию
-    if (needleSprite.moveAnimation) {
-        cancelAnimationFrame(needleSprite.moveAnimation);
-    }
-    
-    // Рассчитываем целевые позиции относительно новой точки клика
-    const needleStartPos = { x: needleSprite.x, y: needleSprite.y };
-    const shadowStartPos = needleShadowSprite ? { x: needleShadowSprite.x, y: needleShadowSprite.y } : { x: 0, y: 0 };
-    
-    const needleTargetPos = calculateNeedlePosition(targetX, targetY, false);
-    const shadowTargetPos = calculateShadowPosition(targetX, targetY, false);
-    
-    const startTime = performance.now();
-    
-    function animate() {
-        const now = performance.now();
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Используем ease-out для плавности
-        const easeProgress = 1 - Math.pow(1 - progress, 3);
-        
-        // Анимируем иглу
-        needleSprite.x = needleStartPos.x + (needleTargetPos.x - needleStartPos.x) * easeProgress;
-        needleSprite.y = needleStartPos.y + (needleTargetPos.y - needleStartPos.y) * easeProgress;
-        
-        // Анимируем тень
-        if (needleShadowSprite) {
-            needleShadowSprite.x = shadowStartPos.x + (shadowTargetPos.x - shadowStartPos.x) * easeProgress;
-            needleShadowSprite.y = shadowStartPos.y + (shadowTargetPos.y - shadowStartPos.y) * easeProgress;
-        }
-        
-        // Обновляем текущую точку клика и базовую позицию Y с учетом мобильного смещения
-        if (isMobile) {
-            // На мобильных смещаем в левый нижний угол иглы (острие)
-            currentClickPoint.x = targetX - needleSprite.width / 2;
-            currentClickPoint.y = targetY + needleSprite.height / 2;
-        } else {
-            // На десктопе оставляем как есть
-            currentClickPoint.x = targetX;
-            currentClickPoint.y = targetY;
-        }
-        needleBaseY = needleSprite.y;
-        
-        if (progress < 1) {
-            needleSprite.moveAnimation = requestAnimationFrame(animate);
-        } else {
-            needleSprite.moveAnimation = null;
-        }
-    }
-    
-    needleSprite.moveAnimation = requestAnimationFrame(animate);
-}
 
 // Функция анимации убрана - игла появляется сразу где мышь
 
@@ -4768,11 +4588,7 @@ function changeShape(newShapeId) {
     }
     
     // Полное пересоздание печеньки с новой формой
-    if (isMobile) {
-        smoothRestart(restartGame);
-    } else {
-        restartGame();
-    }
+    restartGame();
 }
 
 // Функция смены количества кусочков (hexGrid)
@@ -4794,11 +4610,7 @@ function changeHexGrid(newHexGrid) {
     }
     
     // НУЖНО пересоздать всю печеньку с новым количеством кусочков
-    if (isMobile) {
-        smoothRestart(restartGame);
-    } else {
-        restartGame();
-    }
+    restartGame();
 }
 
 // Обновление активной кнопки
