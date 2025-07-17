@@ -3607,7 +3607,7 @@ function createSplitMasks(hexagon, intersections) {
     }
     
     if (CONFIG.dev.consoleLogging) {
-        console.log(`🔄 Разделение кусочка: внутренних вершин=${insideVertices.length}, внешних=${outsideVertices.length}`);
+        // console.log(`🔄 Разделение кусочка: внутренних вершин=${insideVertices.length}, внешних=${outsideVertices.length}`);
     }
     
     // Добавляем точки пересечения к соответствующим массивам
@@ -4221,7 +4221,7 @@ function showGameOverModal() {
     // Создаем содержимое модального окна с bg_modal.png
     const modalContent = document.createElement('div');
     modalContent.style.cssText = `
-        background: url('./src/assets/textures/bg.png');
+        background: url('/src/assets/textures/bg_modal.png');
         background-size: cover;
         background-position: center;
         position: relative;
