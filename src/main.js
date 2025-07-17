@@ -150,9 +150,16 @@ async function initApp() {
         updateCookieSize();
     });
     
-    // Глобальный доступ к приложению для отладки
-    if (isDev) {
-        window.app = app;
+    // Глобальный доступ к приложению (нужен для разделенных кусочков)
+    window.app = app;
+    
+    // Добавляем отложенные контейнеры разделенных кусочков если они есть
+    if (window.pendingSplitContainers && window.pendingSplitContainers.length > 0) {
+        console.log('✅ Добавляем отложенные разделенные кусочки:', window.pendingSplitContainers.length);
+        window.pendingSplitContainers.forEach(container => {
+            app.stage.addChild(container);
+        });
+        window.pendingSplitContainers = [];
     }
     
     // Запуск игры
@@ -771,7 +778,7 @@ function createCenterShapeWithPulse(x, y, cookieSize, cookieSprite) {
                 container.addChild(bgSprite);
                 container.addChild(holeMask);
                 
-                console.log('🖼️ Создан круглый кусочек фона в:', hole.x, hole.y);
+                // console.log('🖼️ Создан круглый кусочек фона в:', hole.x, hole.y);
             } else {
                 console.log('❌ Не найдена текстура background');
             }
@@ -3576,7 +3583,10 @@ function findLineLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
 // Создание отдельных масок для внутренней и внешней частей кусочка
 function createSplitMasks(hexagon, intersections) {
     const cookieSprite = window.cookie;
-    if (!cookieSprite) return null;
+    if (!cookieSprite) {
+        console.warn('❌ window.cookie не найден при создании масок');
+        return null;
+    }
     
     const centerX = cookieSprite.x;
     const centerY = cookieSprite.y;
@@ -3687,7 +3697,10 @@ function createSplitMasks(hexagon, intersections) {
 // Создание разделенных кусочков с отдельными масками
 function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEdgePiece) {
     const masks = createSplitMasks(tempHex, intersections);
-    if (!masks) return null;
+    if (!masks) {
+        console.warn('❌ Не удалось создать маски для разделенного кусочка');
+        return null;
+    }
     
     const cookieTexture = Assets.get('cookie');
     const innerColor = 0xFF00FF; // Сиреневый цвет для внутренних частей (основание)
@@ -3703,34 +3716,42 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     outerContainer.x = x;
     outerContainer.y = y;
     
-    // Создаем спрайты с текстурой для обеих частей
+    // Создаем спрайты с текстурой печенья для каждой части
     const innerTextureSprite = new Sprite(cookieTexture);
     const outerTextureSprite = new Sprite(cookieTexture);
     
     // Настраиваем спрайты - позиционируем их так, чтобы показать нужную часть печенья
     [innerTextureSprite, outerTextureSprite].forEach(sprite => {
         sprite.anchor.set(0.5);
-        sprite.width = window.cookie.width;
-        sprite.height = window.cookie.height;
-        // Смещаем спрайт так, чтобы точка (x,y) кусочка совпадала с соответствующей точкой на текстуре
-        sprite.x = window.cookie.x - x;
-        sprite.y = window.cookie.y - y;
+        // Проверяем что window.cookie существует, иначе используем fallback
+        if (window.cookie) {
+            sprite.width = window.cookie.width;
+            sprite.height = window.cookie.height;
+            // Смещаем спрайт так, чтобы точка (x,y) кусочка совпадала с соответствующей точкой на текстуре
+            sprite.x = window.cookie.x - x;
+            sprite.y = window.cookie.y - y;
+        } else {
+            // Fallback значения если cookie не готов
+            sprite.width = tempHex.radius * 4;
+            sprite.height = tempHex.radius * 4;
+            sprite.x = 0;
+            sprite.y = 0;
+        }
     });
     
-    // Применяем маски ПРАВИЛЬНО: внутренняя часть должна использовать внутреннюю маску
-    innerTextureSprite.mask = masks.innerMask;  // Внутренняя часть использует внутреннюю маску
-    outerTextureSprite.mask = masks.outerMask;  // Внешняя часть использует внешнюю маску
+    // Применяем маски к спрайтам
+    innerTextureSprite.mask = masks.innerMask;
+    outerTextureSprite.mask = masks.outerMask;
     
-    // Добавляем спрайты и маски к контейнерам
-    // Сначала добавляем маски (они невидимы и используются для обрезки)
+    // Добавляем маски и спрайты к контейнерам
     innerContainer.addChild(masks.innerMask);
-    outerContainer.addChild(masks.outerMask);
-    
-    // Затем добавляем спрайты с текстурой (они будут обрезаны масками)
     innerContainer.addChild(innerTextureSprite);
+    
+    outerContainer.addChild(masks.outerMask);
     outerContainer.addChild(outerTextureSprite);
     
     // Выгрызы уже есть в текстуре печенья, не нужно добавлять отдельно
+    
     
     // Добавляем цветные оверлеи ПОВЕРХ текстуры для видимости
     const innerOverlay = new Graphics();
@@ -3783,9 +3804,18 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
     // }
     
     // Добавляем контейнеры на сцену
-    if (window.app && window.app.stage) {
-        window.app.stage.addChild(innerContainer);
-        window.app.stage.addChild(outerContainer);
+    const app = window.app;
+    if (app && app.stage) {
+        app.stage.addChild(innerContainer);
+        app.stage.addChild(outerContainer);
+        console.log('✅ Разделенные кусочки добавлены на сцену:', `${hexId}_inner`, `${hexId}_outer`);
+    } else {
+        console.warn('❌ window.app или window.app.stage не найдены, сохраняем для позднего добавления');
+        // Сохраняем контейнеры для добавления позже
+        if (!window.pendingSplitContainers) {
+            window.pendingSplitContainers = [];
+        }
+        window.pendingSplitContainers.push(innerContainer, outerContainer);
     }
     
     // Создаем объекты кусочков
