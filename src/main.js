@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Texture, BlurFilter, Container, FillGradient } from 'pixi.js';
+import { Application, Assets, Sprite, Graphics, Texture, BlurFilter, Container, FillGradient, Text } from 'pixi.js';
 import { CONFIG } from './config.js';
 
 // Определяем режим разработки
@@ -255,8 +255,6 @@ async function initGame(app) {
         startPulseAnimation(app);
         
         if (isDev) {
-            console.log('🍪 Печенье создано');
-            console.log('🪡 Игла настроена');
         }
         
     } catch (error) {
@@ -446,7 +444,6 @@ function drawCrossPattern(graphics, x, y, size, color) {
 // Рисование центральной формы
 function drawCenterShape(graphics, x, y, shapeConfig) {
     const { form, size, color, lineWidth, alpha, dashed, dashLength, gapLength, secondBorder, borderRadius } = shapeConfig;
-    
     
     const halfSize = size / 2;
     
@@ -696,9 +693,10 @@ function drawDashedTriangle(graphics, x, y, size, dashLength, gapLength, color, 
 
 // Создание центральной формы с пульсирующей обводкой
 function createCenterShapeWithPulse(x, y, cookieSize, cookieSprite) {
-    const container = new Graphics();
+    const container = new Container(); // Исправлено: используем Container вместо Graphics!
     const shapeSize = cookieSize * CONFIG.centerShape.sizePercent;
     const shapeConfig = { ...CONFIG.centerShape, size: shapeSize };
+    
     
     // Создаем спрайт с текстурой печенья (как у кусочков)
     const cookieTexture = Assets.get('cookie');
@@ -744,48 +742,46 @@ function createCenterShapeWithPulse(x, y, cookieSize, cookieSprite) {
         container.addChild(shapeMask);
     }
     
-    // Создаем основную форму (только обводка)
-    const mainShape = new Graphics();
-    drawCenterShape(mainShape, 0, 0, shapeConfig);
-    container.addChild(mainShape);
+    // Создаем основную форму (только обводка) если включена
+    if (CONFIG.centerShape.showMainBorder) {
+        const mainShape = new Graphics();
+        drawCenterShape(mainShape, 0, 0, shapeConfig);
+        container.addChild(mainShape);
+    }
     
-    // Добавляем пунктирные выгрызы прямо здесь
-    if (CONFIG.centerShape.pulse.enabled) {
-        console.log('🔥 Добавляем выгрызы к центральной форме!');
+    // Создаем пунктирные кружки с текстурой (статичная пунктирная обводка)
+    if (CONFIG.centerShape.dashedBorder.enabled) {
         const holes = generateHolePositions(0, 0, shapeConfig);
-        console.log('🕳️ Найдено отверстий:', holes.length);
         
-        holes.forEach(hole => {
-            // Создаем спрайт с текстурой bg.png
-            const bgTexture = Assets.get('background');
-            if (bgTexture) {
-                const bgSprite = new Sprite(bgTexture);
-                
-                // Центрируем спрайт
-                bgSprite.anchor.set(0.5);
-                bgSprite.x = hole.x;
-                bgSprite.y = hole.y;
-                
-                // Создаем круглую маску
-                const holeMask = new Graphics();
-                holeMask.circle(hole.x, hole.y, 2); // Еще меньший размер кружка
-                holeMask.fill(0xFFFFFF);
-                
-                // Применяем маску к спрайту
-                bgSprite.mask = holeMask;
-                
-                // Добавляем спрайт и маску в контейнер
-                container.addChild(bgSprite);
-                container.addChild(holeMask);
-                
-                // console.log('🖼️ Создан круглый кусочек фона в:', hole.x, hole.y);
-            } else {
-                console.log('❌ Не найдена текстура background');
+        holes.forEach((hole, index) => {
+            // Создаем пунктирный эффект - показываем только каждый второй кружок
+            if (index % 2 === 0) {
+                // Создаем спрайт с текстурой фона
+                const bgTexture = Assets.get('background');
+                if (bgTexture) {
+                    const bgSprite = new Sprite(bgTexture);
+                    
+                    // Центрируем спрайт
+                    bgSprite.anchor.set(0.5);
+                    bgSprite.x = hole.x;
+                    bgSprite.y = hole.y;
+                    
+                    // Создаем круглую маску для пунктира
+                    const holeMask = new Graphics();
+                    holeMask.circle(hole.x, hole.y, CONFIG.centerShape.dashedBorder.holeSize);
+                    holeMask.fill(0xFFFFFF);
+                    
+                    // Применяем маску к спрайту
+                    bgSprite.mask = holeMask;
+                    
+                    // Добавляем спрайт и маску в контейнер
+                    container.addChild(bgSprite);
+                    container.addChild(holeMask);
+                }
             }
         });
-        
-        console.log('✅ Выгрызы добавлены к центральной форме');
     }
+    
     
     // Устанавливаем позицию контейнера
     container.x = x;
@@ -802,7 +798,7 @@ function generateHolePositions(x, y, shapeConfig) {
     const holes = [];
     
     // Параметры перфорации
-    const holeSpacing = 15; // Расстояние между отверстиями
+    const holeSpacing = CONFIG.centerShape.dashedBorder.spacing; // Расстояние между отверстиями
     
     switch (form) {
         case 1: // Круг
@@ -1027,7 +1023,7 @@ function createCookie(app) {
     
     // Создаем и добавляем центральную форму ПОВЕРХ кусочков
     const centerShapeContainer = createCenterShapeWithPulse(cookieSprite.x, cookieSprite.y, cookieSize, cookieSprite);
-    centerShapeContainer.visible = false; // СКРЫВАЕМ центральную форму
+    centerShapeContainer.visible = true; // ПОКАЗЫВАЕМ центральную форму
     if (app && app.stage) {
         app.stage.addChild(centerShapeContainer);
     }
@@ -1329,6 +1325,19 @@ function generateSmallHexagons(app, cookieSprite) {
             logicBorderOverlay.y = 0;
             
             hexContainer.addChild(logicBorderOverlay);
+        }
+        
+        // Добавляем номер кусочка для отладки
+        if (CONFIG.dev.showLabels) {
+            const text = new Text(hexId, {
+                fontFamily: 'Arial',
+                fontSize: 12,
+                fill: 0x000000,
+                align: 'center'
+            });
+            text.x = -text.width / 2;
+            text.y = -text.height / 2;
+            hexContainer.addChild(text);
         }
         
         // Убираем интерактивность контейнера, так как обработка происходит через иглу
@@ -1738,6 +1747,7 @@ function hasPathToBase(hexagon, excludedPieces, allHexagons) {
         )
     );
     
+    
     const visited = new Set();
     const queue = [hexagon];
     visited.add(hexagon.id);
@@ -1766,117 +1776,165 @@ function hasPathToBase(hexagon, excludedPieces, allHexagons) {
 }
 
 // Функция простого вырезания кусочков вокруг удаленного
+// Новая система каскадного удаления кусочков
 function findCascadingFallingPieces(removedHexagon) {
-    console.log(`🎯 findCascadingFallingPieces вызвана для кусочка ${removedHexagon.id}`);
     const allHexagons = window.smallHexagons;
     if (!allHexagons || allHexagons.length === 0) return [];
     
     const maxFallingPieces = CONFIG.cookie.pieces.maxFallingPieces;
-    console.log(`⚙️ Лимит падающих кусочков: ${maxFallingPieces}`);
-    const fallingPieces = [];
     
-    // Добавляем удаленный кусочек в список падающих (НЕ помечаем isPainted)
-    fallingPieces.push(removedHexagon);
-    console.log(`📦 Начальный кусочек добавлен, всего падающих: ${fallingPieces.length}`);
+    // ЭТАП 1: Удаляем кусочки по лимиту сложности
+    const fallingPieces = findSimpleCascade(removedHexagon, new Set(), allHexagons, maxFallingPieces);
     
-    // Итеративно добавляем соседей падающих кусочков
-    let foundNewFallingPieces = true;
-    let reachedLimit = false;
-    while (foundNewFallingPieces && fallingPieces.length < maxFallingPieces && !reachedLimit) {
-        foundNewFallingPieces = false;
-        
-        // Создаем множество уже найденных падающих кусочков
-        const fallingIds = new Set(fallingPieces.map(p => p.id));
-        
-        // Проверяем всех соседей уже найденных падающих кусочков
-        for (const fallingPiece of fallingPieces) {
-            const neighbors = findHexagonNeighbors(fallingPiece, allHexagons);
-            
-            for (const neighbor of neighbors) {
-                // Пропускаем уже найденные или уже покрашенные кусочки
-                if (neighbor.isPainted || fallingIds.has(neighbor.id)) continue;
-                
-                // Пропускаем кусочки, которые не могут упасть (только центральные)
-                if (neighbor.isInCenterShape) continue;
-                
-                // Просто добавляем соседа в падающие
-                fallingPieces.push(neighbor);
-                foundNewFallingPieces = true;
-                
-                // Ограничиваем количество падающих кусочков
-                if (fallingPieces.length >= maxFallingPieces) {
-                    console.log(`⏰ Достигнут лимит ${maxFallingPieces} кусочков, завершаем первый этап`);
-                    reachedLimit = true;
-                    break; // Выходим из внутреннего цикла
+    // ЭТАП 2: Находим всех соседей удаленных кусочков
+    const allFallingIds = new Set(fallingPieces.map(p => p.id));
+    const candidates = new Set();
+    
+    for (const fallingPiece of fallingPieces) {
+        const neighbors = findHexagonNeighbors(fallingPiece, allHexagons);
+        for (const neighbor of neighbors) {
+            // Добавляем кандидата если он не удален и не покрашен
+            if (!neighbor.isPainted && !allFallingIds.has(neighbor.id)) {
+                // Исключаем внутренние части разделенных кусочков (они часть основы)
+                if (neighbor.isSplitPart && neighbor.partType === 'inner') {
+                    continue;
                 }
+                candidates.add(neighbor);
             }
-            
-            if (reachedLimit) break; // Выходим из внешнего цикла
         }
     }
     
-    console.log(`🔥 Первый этап завершен: ${fallingPieces.length} кусочков в списке падающих`);
+    // ЭТАП 3: Проверяем каждого кандидата на связность с основой
+    const additionalFallingPieces = [];
     
-    // НОВАЯ ЛОГИКА: Проверяем связность после вырезания
-    let additionalFallingPieces = [];
-    let checkConnectivity = true;
-    
-    console.log(`🌊 Начинаем проверку связности для ${fallingPieces.length} падающих кусочков`);
-    
-    let iteration = 1;
-    while (checkConnectivity) {
-        console.log(`🔄 === ИТЕРАЦИЯ ${iteration} ПРОВЕРКИ СВЯЗНОСТИ ===`);
-        checkConnectivity = false;
+    for (const candidate of candidates) {
+        // Проверяем путь до основы, исключая уже удаленные кусочки
+        const hasPath = hasPathToBase(candidate, allFallingIds, allHexagons);
         
-        // Объединяем все падающие кусочки
-        const allFallingIds = new Set([...fallingPieces, ...additionalFallingPieces].map(p => p.id));
-        
-        // Находим кусочки, прилегающие к падающим
-        const adjacentPieces = new Set();
-        for (const fallingPiece of [...fallingPieces, ...additionalFallingPieces]) {
-            const neighbors = findHexagonNeighbors(fallingPiece, allHexagons);
-            for (const neighbor of neighbors) {
-                // Добавляем только те, которые не падают и не покрашены
-                if (!neighbor.isPainted && !allFallingIds.has(neighbor.id)) {
-                    // Исключаем внутренние части разделенных кусочков (они часть основы)
-                    if (neighbor.isSplitPart && neighbor.partType === 'inner') {
-                        console.log(`🚫 Пропускаем внутреннюю часть (основа): ${neighbor.id}`);
-                        continue;
-                    }
-                    
-                    adjacentPieces.add(neighbor);
-                    console.log(`🔗 Прилегающий кусочек: ${neighbor.id} (${neighbor.isEdgePiece ? 'КРАЙНИЙ' : 'обычный'})`);
+        if (!hasPath) {
+            // Удаляем весь компонент связанных с этим кандидатом кусочков
+            const disconnectedGroup = findConnectedGroup(candidate, allFallingIds, allHexagons);
+            
+            // Добавляем всю группу к удаляемым
+            for (const piece of disconnectedGroup) {
+                if (!allFallingIds.has(piece.id)) {
+                    additionalFallingPieces.push(piece);
+                    allFallingIds.add(piece.id);
                 }
             }
         }
-        
-        console.log(`🔍 Найдено ${adjacentPieces.size} прилегающих кусочков для проверки связности`);
-        
-        // Проверяем каждый прилегающий кусочек на связность с основой
-        for (const adjacentPiece of adjacentPieces) {
-            const hasPath = hasPathToBase(adjacentPiece, allFallingIds, allHexagons);
-            console.log(`🔍 Проверяем связность кусочка ${adjacentPiece.id} (${adjacentPiece.isEdgePiece ? 'крайний' : 'обычный'}): ${hasPath ? 'ЕСТЬ путь' : 'НЕТ пути'}`);
-            
-            if (!hasPath) {
-                console.log(`🔗 Найден несвязанный кусочек ${adjacentPiece.id}, применяем каскадное удаление`);
-                // Кусочек не имеет пути до основы - применяем к нему алгоритм удаления
-                const newFallingPieces = findSimpleCascade(adjacentPiece, allFallingIds, allHexagons, Infinity);
-                console.log(`➕ Добавлено ${newFallingPieces.length} новых падающих кусочков`);
-                additionalFallingPieces.push(...newFallingPieces);
-                checkConnectivity = true;
-                console.log(`🔄 Найден несвязанный кусочек, перезапускаем итерацию ${iteration + 1}`);
-                break; // Перезапускаем проверку связности
-            }
-        }
-        
-        if (!checkConnectivity) {
-            console.log(`✅ Итерация ${iteration} завершена: новых несвязанных кусочков не найдено`);
-        }
-        iteration++;
     }
     
-    console.log(`🏁 ФИНАЛ: ${fallingPieces.length} + ${additionalFallingPieces.length} = ${fallingPieces.length + additionalFallingPieces.length} кусочков упадет`);
+    // ЭТАП 4: Дополнительная проверка ВСЕХ синих (краевых) кусочков
+    const allRemainingFallingIds = new Set([...fallingPieces, ...additionalFallingPieces].map(p => p.id));
+    const edgePiecesToCheck = allHexagons.filter(hex => 
+        hex.isEdgePiece && 
+        !hex.isPainted && 
+        !allRemainingFallingIds.has(hex.id)
+    );
+    
+    let edgePiecesProcessed = 0;
+    
+    // Сначала находим ВСЕ несвязанные синие кусочки
+    const disconnectedEdgePieces = [];
+    for (const edgePiece of edgePiecesToCheck) {
+        edgePiecesProcessed++;
+        // Проверяем путь до основы
+        const hasPath = hasPathToBase(edgePiece, allRemainingFallingIds, allHexagons);
+        
+        if (!hasPath) {
+            disconnectedEdgePieces.push(edgePiece);
+        }
+    }
+    
+    // Теперь для каждого несвязанного синего кусочка удаляем всю его группу
+    for (const edgePiece of disconnectedEdgePieces) {
+        if (!allRemainingFallingIds.has(edgePiece.id)) {
+            // Находим всю связанную группу
+            const disconnectedGroup = findConnectedGroup(edgePiece, allRemainingFallingIds, allHexagons);
+            
+            // Добавляем всю группу к удаляемым
+            for (const piece of disconnectedGroup) {
+                if (!allRemainingFallingIds.has(piece.id)) {
+                    additionalFallingPieces.push(piece);
+                    allRemainingFallingIds.add(piece.id);
+                }
+            }
+        }
+    }
+    
+    // ЭТАП 5: Проверка всех оранжевых (внешних частей разделенных кусочков)
+    // Используем обновленный набор после этапа 4
+    const finalFallingIds = new Set(allRemainingFallingIds);
+    const orangePiecesToCheck = allHexagons.filter(hex => 
+        hex.isSplitPart && 
+        hex.partType === 'outer' && 
+        !hex.isPainted && 
+        !finalFallingIds.has(hex.id)
+    );
+    
+    let orangePiecesAdded = 0;
+    let orangePiecesProcessed = 0;
+    
+    for (const orangePiece of orangePiecesToCheck) {
+        orangePiecesProcessed++;
+        
+        // Ищем соседей этого оранжевого кусочка
+        const neighbors = findHexagonNeighbors(orangePiece, allHexagons);
+        
+        // Получаем ID доступных фиолетовых соседей (не удаленных, не покрашенных, не в списке удаляемых)
+        const purpleNeighbors = neighbors.filter(neighbor => 
+            neighbor.isSplitPart && 
+            neighbor.partType === 'inner' && 
+            !neighbor.isPainted &&
+            !finalFallingIds.has(neighbor.id)
+        );
+        
+        const hasPurpleNeighbor = purpleNeighbors.length > 0;
+        
+        if (!hasPurpleNeighbor) {
+            // Добавляем ТОЛЬКО этот кусочек к удаляемым
+            if (!finalFallingIds.has(orangePiece.id)) {
+                additionalFallingPieces.push(orangePiece);
+                finalFallingIds.add(orangePiece.id);
+                orangePiecesAdded++;
+            }
+        }
+    }
+    
     return [...fallingPieces, ...additionalFallingPieces];
+}
+
+// Функция поиска всех кусочков, связанных с данным кусочком (BFS)
+function findConnectedGroup(startPiece, excludedIds, allHexagons) {
+    const visited = new Set();
+    const group = [];
+    const queue = [startPiece];
+    visited.add(startPiece.id);
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        group.push(current);
+        
+        const neighbors = findHexagonNeighbors(current, allHexagons);
+        for (const neighbor of neighbors) {
+            // Добавляем только непокрашенные, неисключенные и непосещенные кусочки
+            if (!neighbor.isPainted && 
+                !excludedIds.has(neighbor.id) && 
+                !visited.has(neighbor.id)) {
+                
+                // Исключаем внутренние части разделенных кусочков (они часть основы)
+                if (neighbor.isSplitPart && neighbor.partType === 'inner') {
+                    continue;
+                }
+                
+                visited.add(neighbor.id);
+                queue.push(neighbor);
+            }
+        }
+    }
+    
+    return group;
 }
 
 // Вспомогательная функция для простого каскадного удаления
@@ -2387,10 +2445,6 @@ async function loadNeedleTexture() {
             // Добавляем в кеш
             Assets.cache.set('needle', texture);
             
-            if (isDev) {
-                console.log('✅ Текстура иглы загружена');
-                console.log('🖼️ Размер текстуры иглы:', texture.width, 'x', texture.height);
-            }
             
             // Загружаем тень иглы
             await loadNeedleShadowTexture();
@@ -2413,10 +2467,6 @@ async function loadNeedleShadowTexture() {
         // Способ 1: Динамический import
         const needleShadowImageUrl = (await import('./assets/textures/needle_shadow.png')).default;
         
-        if (isDev) {
-            console.log('🔍 Загружаем текстуру тени иглы');
-            console.log('📁 URL текстуры тени иглы:', needleShadowImageUrl);
-        }
         
         if (needleShadowImageUrl) {
             // Создаем Image элемент
@@ -2437,10 +2487,6 @@ async function loadNeedleShadowTexture() {
             // Добавляем в кеш
             Assets.cache.set('needleShadow', texture);
             
-            if (isDev) {
-                console.log('✅ Текстура тени иглы загружена');
-                console.log('🖼️ Размер текстуры тени иглы:', texture.width, 'x', texture.height);
-            }
             return;
         }
         
@@ -2863,7 +2909,6 @@ function showNeedle() {
         }
         
         if (isDev) {
-            console.log('👁️ Игла показана');
         }
     }
 }
@@ -2881,7 +2926,6 @@ function hideNeedle() {
         }
         
         if (isDev) {
-            console.log('🙈 Игла скрыта');
         }
     }
 }
@@ -3137,40 +3181,6 @@ function interpolateColor(colorFrom, colorTo, factor) {
 function startPulseAnimation(app) {
     function animate() {
         const centerShapeContainer = window.centerShape;
-        
-        if (centerShapeContainer && centerShapeContainer.pulseShape && CONFIG.centerShape.pulse.enabled) {
-            const currentTime = Date.now();
-            const elapsed = (currentTime - centerShapeContainer.pulseStartTime) / 1000; // в секундах
-            const pulseConfig = CONFIG.centerShape.pulse;
-            
-            // Вычисляем текущий фактор интерполяции на основе синусоиды
-            const phase = elapsed * pulseConfig.speed * 2 * Math.PI;
-            const normalizedSin = (Math.sin(phase) + 1) / 2; // нормализуем от 0 до 1
-            
-            // Интерполируем цвет
-            const currentColor = interpolateColor(pulseConfig.colorFrom, pulseConfig.colorTo, normalizedSin);
-            
-            // Пересоздаем пульсирующую форму с новым цветом
-            const pulseShape = centerShapeContainer.pulseShape;
-            if (pulseShape) {
-                pulseShape.clear();
-                
-                // Получаем параметры формы
-                const shapeSize = centerShapeContainer.cookieSize * CONFIG.centerShape.sizePercent;
-                const pulseConfigUpdated = {
-                    form: CONFIG.centerShape.form,
-                    size: shapeSize,
-                    color: currentColor,
-                    lineWidth: pulseConfig.lineWidth,
-                    alpha: pulseConfig.alpha,
-                    dashed: pulseConfig.dashed,
-                    dashLength: pulseConfig.dashLength,
-                    gapLength: pulseConfig.gapLength
-                };
-                
-                drawCenterShape(pulseShape, 0, 0, pulseConfigUpdated);
-            }
-        }
         
         requestAnimationFrame(animate);
     }
@@ -3913,6 +3923,31 @@ function createSplitHexagons(x, y, hexId, rotation, tempHex, intersections, isEd
             outerBorderOverlay.stroke({ color: 0xFF8000, width: 1, alpha: 1.0 }); // Оранжевая граница для внешней части
             outerContainer.addChild(outerBorderOverlay);
         }
+    }
+    
+    // Добавляем номера кусочков для отладки
+    if (CONFIG.dev.showLabels) {
+        // Номер для внутренней части (фиолетовая)
+        const innerText = new Text(`${hexId}i`, {
+            fontFamily: 'Arial',
+            fontSize: 12,
+            fill: 0x000000,
+            align: 'center'
+        });
+        innerText.x = -innerText.width / 2;
+        innerText.y = -innerText.height / 2 - 5; // Немного выше центра
+        innerContainer.addChild(innerText);
+        
+        // Номер для внешней части (оранжевая)
+        const outerText = new Text(`${hexId}o`, {
+            fontFamily: 'Arial',
+            fontSize: 12,
+            fill: 0x000000,
+            align: 'center'
+        });
+        outerText.x = -outerText.width / 2;
+        outerText.y = -outerText.height / 2 + 5; // Немного ниже центра
+        outerContainer.addChild(outerText);
     }
     
     // Добавляем контейнеры на сцену
