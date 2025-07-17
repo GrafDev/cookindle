@@ -1825,84 +1825,44 @@ function findCascadingFallingPieces(removedHexagon) {
         }
     }
     
-    // ЭТАП 4: Дополнительная проверка ВСЕХ синих (краевых) кусочков
-    const allRemainingFallingIds = new Set([...fallingPieces, ...additionalFallingPieces].map(p => p.id));
-    const edgePiecesToCheck = allHexagons.filter(hex => 
-        hex.isEdgePiece && 
-        !hex.isPainted && 
-        !allRemainingFallingIds.has(hex.id)
-    );
     
-    let edgePiecesProcessed = 0;
+    return [...fallingPieces, ...additionalFallingPieces];
+}
+
+// Функция проверки всех оранжевых кусочков на наличие соседних фиолетовых
+function checkOrangePiecesForPurpleNeighbors(excludedIds = new Set()) {
+    const allHexagons = window.smallHexagons;
+    if (!allHexagons || allHexagons.length === 0) return [];
     
-    // Сначала находим ВСЕ несвязанные синие кусочки
-    const disconnectedEdgePieces = [];
-    for (const edgePiece of edgePiecesToCheck) {
-        edgePiecesProcessed++;
-        // Проверяем путь до основы
-        const hasPath = hasPathToBase(edgePiece, allRemainingFallingIds, allHexagons);
-        
-        if (!hasPath) {
-            disconnectedEdgePieces.push(edgePiece);
-        }
-    }
+    const orangePiecesToRemove = [];
     
-    // Теперь для каждого несвязанного синего кусочка удаляем всю его группу
-    for (const edgePiece of disconnectedEdgePieces) {
-        if (!allRemainingFallingIds.has(edgePiece.id)) {
-            // Находим всю связанную группу
-            const disconnectedGroup = findConnectedGroup(edgePiece, allRemainingFallingIds, allHexagons);
-            
-            // Добавляем всю группу к удаляемым
-            for (const piece of disconnectedGroup) {
-                if (!allRemainingFallingIds.has(piece.id)) {
-                    additionalFallingPieces.push(piece);
-                    allRemainingFallingIds.add(piece.id);
-                }
-            }
-        }
-    }
-    
-    // ЭТАП 5: Проверка всех оранжевых (внешних частей разделенных кусочков)
-    // Используем обновленный набор после этапа 4
-    const finalFallingIds = new Set(allRemainingFallingIds);
-    const orangePiecesToCheck = allHexagons.filter(hex => 
+    // Находим все оранжевые кусочки, которые не покрашены и не исключены
+    const orangePieces = allHexagons.filter(hex => 
         hex.isSplitPart && 
         hex.partType === 'outer' && 
         !hex.isPainted && 
-        !finalFallingIds.has(hex.id)
+        !excludedIds.has(hex.id)
     );
     
-    let orangePiecesAdded = 0;
-    let orangePiecesProcessed = 0;
-    
-    for (const orangePiece of orangePiecesToCheck) {
-        orangePiecesProcessed++;
-        
+    for (const orangePiece of orangePieces) {
         // Ищем соседей этого оранжевого кусочка
         const neighbors = findHexagonNeighbors(orangePiece, allHexagons);
         
-        // Получаем ID доступных фиолетовых соседей (не удаленных, не покрашенных, не в списке удаляемых)
-        const purpleNeighbors = neighbors.filter(neighbor => 
+        // Проверяем есть ли среди соседей фиолетовые (внутренние) кусочки
+        const hasPurpleNeighbor = neighbors.some(neighbor => 
             neighbor.isSplitPart && 
             neighbor.partType === 'inner' && 
             !neighbor.isPainted &&
-            !finalFallingIds.has(neighbor.id)
+            !excludedIds.has(neighbor.id)
         );
         
-        const hasPurpleNeighbor = purpleNeighbors.length > 0;
-        
+        // Если нет фиолетовых соседей - добавляем к удаляемым
         if (!hasPurpleNeighbor) {
-            // Добавляем ТОЛЬКО этот кусочек к удаляемым
-            if (!finalFallingIds.has(orangePiece.id)) {
-                additionalFallingPieces.push(orangePiece);
-                finalFallingIds.add(orangePiece.id);
-                orangePiecesAdded++;
-            }
+            orangePiecesToRemove.push(orangePiece);
         }
     }
     
-    return [...fallingPieces, ...additionalFallingPieces];
+    return orangePiecesToRemove;
 }
 
 // Функция поиска всех кусочков, связанных с данным кусочком (BFS)
